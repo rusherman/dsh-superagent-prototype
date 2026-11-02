@@ -81,6 +81,10 @@ describe('setup', () => {
     mkdirSync(plain, { recursive: true })
     await expect(resolveDeployment(machine(), { project: plain }, probe, path)).rejects.toEqual(setupError('execution', 'projectInvalid', { project: plain }))
     await expect(resolveDeployment(machine(), { project: 'relative' }, probe, path)).rejects.toEqual(setupError('execution', 'projectInvalid', { project: 'relative' }))
+    // The host's git environment does not reach the check: DSH strips GIT_CONFIG_KEY_n from child processes and leaves
+    // GIT_CONFIG_COUNT, and a GIT_DIR names another repository.
+    const hostGit: Probe = async argv => (await exec(argv[0]!, argv.slice(1), { env: { PATH: path, HOME: dir, GIT_CONFIG_COUNT: '1', GIT_DIR: plain } })).stdout
+    expect((await resolveDeployment(machine(), { project }, hostGit, path)).project).toBe(top)
     // A partial GitHub configuration is still an error, even with a local project.
     await expect(resolveDeployment(machine(), { github: { cli: 'gh' }, project }, probe, path)).rejects.toEqual(setupError('github', 'repositoryUnset'))
   })

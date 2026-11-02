@@ -88,7 +88,7 @@ const SCOPED = 'git config -z --show-scope --get-regexp ^(credential\\..*|http\\
 const subprocess = { spawn: vi.fn((spec: { argv: readonly string[] }) => {
   // Strip leading `env` and `KEY=VALUE` arguments before looking up the command response.
   const argv = [...spec.argv]
-  while (argv[0] === 'env' || /^[A-Z_]+=/.test(argv[0] ?? '')) argv.shift()
+  while (argv[0] === 'env' || /^[A-Z_]+=/.test(argv[0] ?? '') || argv[0] === '-u') argv.splice(0, argv[0] === '-u' ? 2 : 1)
   const answer = answers[argv.join(' ')] ?? ''
   const reader = (text: string) => ({ readFrom: () => ({ text, nextOffset: text.length, lossy: false }) })
   return { done: Promise.resolve({ exitCode: answer instanceof Error ? 1 : 0, signal: null }), collected: { stdout: reader(answer instanceof Error ? '' : answer), stderr: reader(answer instanceof Error ? answer.message : '') } }

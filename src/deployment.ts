@@ -6,7 +6,7 @@ import type { Volatile } from '@deepseek-ai/cordis'
 import s from '@deepseek-ai/schemastery'
 import { z } from 'zod'
 import type { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
-import { runAsWorker, sameDirectory, withoutDirectory, workerBin } from './infra/environment.ts'
+import { agentVariables, runAsWorker, sameDirectory, withoutDirectory, workerBin } from './infra/environment.ts'
 import { SetupError } from './setup.ts'
 
 const reason = (error: unknown): string => error instanceof Error ? error.message : String(error)
@@ -118,10 +118,16 @@ export async function resolveGithub(machine: Machine, github: unknown, probe: Pr
 }
 
 /** Verify that the Execution settings' local project is a git work tree, returning its top-level directory; no project when unset. */
-export async function resolveProject(project: string, probe: Probe): Promise<string | undefined> {
+export async function resolveProject(project: string, probe: Probe, stateDir: string): Promise<string | undefined> {
   if (!project) return undefined
   if (!isAbsolute(project)) throw new SetupError('projectInvalid', { project, output: 'Not an absolute path' })
-  const top = await probe(['git', '-C', project, 'rev-parse', '--show-toplevel']).catch((error: unknown) => {
+  // Setup resolves before it applies the workers' environment: git runs with the workers' git variables, not the host's, whose
+  // GIT_CONFIG_COUNT would outlive the GIT_CONFIG_KEY_n variables DSH strips from child processes and break every git command.
+  const variables = Object.entries(agentVariables(stateDir))
+  // `env` takes every -u before the first assignment.
+  const unset = variables.flatMap(([name, value]) => value === undefined ? ['-u', name] : [])
+  const set = variables.flatMap(([name, value]) => value === undefined ? [] : [`${name}=${value}`])
+  const top = await probe(['env', ...unset, ...set, 'git', '-C', project, 'rev-parse', '--show-toplevel']).catch((error: unknown) => {
     throw new SetupError('projectInvalid', { project, output: reason(error) })
   })
   const directory = top.trim()
@@ -132,7 +138,7 @@ export async function resolveProject(project: string, probe: Probe): Promise<str
 /** Resolve the agent's workspace: the GitHub repository and account, the local project, or both; refuse when neither is set. */
 export async function resolveDeployment(machine: Machine, workspace: { github?: unknown; project?: string }, probe: Probe, path = process.env.PATH ?? ''): Promise<Deployment> {
   const github = await resolveGithub(machine, workspace.github, probe, path)
-  const project = await resolveProject(workspace.project ?? '', probe)
+  const project = await resolveProject(workspace.project ?? '', probe, machine.stateDir)
   if (!github && !project) throw new SetupError('workspaceUnset')
   return { ...machine, ...(github ? { github } : {}), ...(project ? { project } : {}) }
 }
