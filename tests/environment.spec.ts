@@ -5,10 +5,10 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SENSITIVE_ENV_PATTERN, type SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
-import { GIT_LOCATION, agentVariables, credentialHelper, runAsWorker, verifyDirectory, withoutDirectory, workerBin, workerGitConfig, writeEnvironment }
+import { GIT_LOCATION, agentVariables, credentialHelper, runAsWorker, verifyDirectory, withoutDirectory, workerBin, verifyEnvironment, workerGitConfig, writeEnvironment }
   from '../src/infra/environment.ts'
 import { CliError } from '../src/infra/commands.ts'
-import { testDeployment } from './fixtures/deployment.ts'
+import { localDeployment, testDeployment } from './fixtures/deployment.ts'
 import { gitEnv } from './fixtures/git.ts'
 
 // Git and shell subprocesses can exceed the 5s default timeout when the test suite runs in parallel.
@@ -130,6 +130,25 @@ const subprocess = (config: string): SubprocessRuntime => ({
     return { done, collected: { stdout: reader('stdout'), stderr: reader('stderr') } }
   },
 }) as unknown as SubprocessRuntime
+describe('an installation without GitHub', () => {
+  const signal = new AbortController().signal
+  it('makes `gh` fail, blocks commands without naming an account, and writes no github.com credentials', async () => {
+    await writeEnvironment(localDeployment({ stateDir: dir, feishu: undefined }), ['personal-gh'])
+    const bin = workerBin(dir)
+    await expect(exec(join(bin, 'gh'), ['api', 'user'])).rejects.toMatchObject({ code: 1, stderr: 'gh is unavailable: this installation has no GitHub repository; it serves a local project.\n' })
+    await expect(exec(join(bin, 'personal-gh'), [])).rejects.toMatchObject({ code: 1, stderr: 'personal-gh is blocked in this installation.\n' })
+    const config = readFileSync(workerGitConfig(dir), 'utf8')
+    expect(config).toContain('useConfigOnly = true')
+    expect(config).not.toContain('github.com')
+  })
+  it('verifies that git reads the worker configuration, and refuses a git that does not', async () => {
+    const deployment = localDeployment({ stateDir: dir })
+    await writeEnvironment(deployment, [])
+    await expect(verifyEnvironment(deployment, subprocess(workerGitConfig(dir)), signal)).resolves.toBeUndefined()
+    writeFileSync(join(dir, 'global'), '')
+    await expect(verifyEnvironment(deployment, subprocess(join(dir, 'global')), signal)).rejects.toMatchObject({ code: 'gitTooOld' })
+  })
+})
 describe('ticket directory check', () => {
   const signal = new AbortController().signal
   const env = () => gitEnv({ GIT_CONFIG_GLOBAL: join(dir, 'global'), GIT_CONFIG_NOSYSTEM: '1' })

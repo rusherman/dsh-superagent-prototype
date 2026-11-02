@@ -33,6 +33,7 @@ Retrieve missing context using available tools; try feasible alternatives and bo
 Do not loop indefinitely, bypass safety or permissions, or claim success for an impossible ticket.
 Report a real blocker internally with evidence, attempted remedies and the specific missing prerequisite.
 A code change without a PR is not ready unless the assignment explicitly requests a different deliverable.
+When $DSH_SUPERAGENT_GITHUB_REPOSITORY is empty, the deployment serves the local project at $DSH_SUPERAGENT_PROJECT without GitHub: never push or open a PR; unless the Delivery requirements name an author, commit as dsh-superagent <dsh-superagent@localhost>; ready delivers reviewed commits on the ticket branch, naming the branch and head commit.
 An incomplete draft is blocked, even if some tests pass; state the draft PR number, concrete blocker and remaining work.
 Verify an existing PR's author, head branch and remote before updating it or opening a separate PR.
 Do not delete ticket directories or rewrite unrelated branches.

@@ -44,16 +44,30 @@ export function ciFact(counts: { failed: number; running: number }): ThreadFact 
   return { label: 'CI', value: { zh: '通过', en: 'passed' } }
 }
 
-/** Reads a non-hidden file or directory listing from the repository's default branch via the GitHub API; hidden entries and `node_modules` are rejected. */
-export async function readRepositoryPath(commands: Commands, path: string, kind: 'file' | 'directory'): Promise<string> {
+/** Splits a repository-relative path, rejecting parent, hidden and `node_modules` entries. */
+export function sourcePath(path: string): string[] {
   const parts = path.split('/').filter(part => part && part !== '.')
   if (parts.some(part => part === '..' || part.startsWith('.') || part === 'node_modules')) throw new Error('Only non-hidden repository source paths are available')
+  return parts
+}
+const listed = (names: string[]): string => names.filter(name => name && !name.startsWith('.') && name !== 'node_modules').sort().join('\n')
+/** Reads a non-hidden file or directory listing from the repository's default branch via the GitHub API; hidden entries and `node_modules` are rejected. */
+export async function readRepositoryPath(commands: Commands, path: string, kind: 'file' | 'directory'): Promise<string> {
+  const parts = sourcePath(path)
   const resource = `contents/${parts.map(encodeURIComponent).join('/')}`
   if (kind === 'file') return commands.api(resource, '-H', 'Accept: application/vnd.github.raw')
   // GitHub returns an entry array for a directory and a single object for a file.
   const entries = await commands.api(z.union([z.array(z.looseObject({ name: z.string() })), z.looseObject({})]), resource)
   if (!Array.isArray(entries)) throw new Error(`${path} is not a directory`)
-  return entries.map(entry => entry.name).filter(name => !name.startsWith('.') && name !== 'node_modules').sort().join('\n')
+  return listed(entries.map(entry => entry.name))
+}
+/** Reads a non-hidden file or directory listing from the committed HEAD of a local project, the same view `readRepositoryPath` gives of GitHub. */
+export async function readProjectPath(commands: Commands, project: string, path: string, kind: 'file' | 'directory'): Promise<string> {
+  const target = sourcePath(path).join('/')
+  if (kind === 'file') return commands.git(['show', `HEAD:${target}`], project)
+  const type = (await commands.git(['cat-file', '-t', `HEAD:${target}`], project).catch(() => '')).trim()
+  if (type !== 'tree') throw new Error(`${path} is not a directory`)
+  return listed((await commands.git(['ls-tree', '-z', '--name-only', `HEAD:${target}`], project)).split('\0'))
 }
 
 /** Reads check runs and commit statuses for a commit without emitting a trigger. */

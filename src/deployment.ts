@@ -1,4 +1,4 @@
-/** Plugin configuration and startup verification for repository access and agent CLI identities. */
+/** Plugin configuration and startup verification for the agent's workspace: a GitHub repository with the agent CLI identity, a local project, or both. */
 import { LIMITS } from './limits.ts'
 import { accessSync, constants, statSync } from 'node:fs'
 import { delimiter, isAbsolute, join } from 'node:path'
@@ -50,10 +50,22 @@ export const FeishuBotSchema = z.object({ cli: z.string().trim().default('') })
 /** Source configuration keys that affect deployment setup and trigger a restart when changed. */
 export const SETUP_FIELDS: Readonly<Record<string, readonly string[]>> = { github: Object.keys(GithubAccountsSchema.shape), feishu: Object.keys(FeishuBotSchema.shape) }
 
+/** The GitHub repository and the agent account that acts on it. */
+export interface GithubAccount { repository: string; cli: string; login: string; noreply: string }
+/**
+ * A resolved deployment serves a GitHub repository (`github`), a local git repository (`project`), or both; setup refuses
+ * neither. Without `github`, the GitHub Source does not run and workers deliver local commits instead of pull requests.
+ */
 export interface Deployment extends Machine {
-  repository: string
-  github: { cli: string; login: string; noreply: string }
+  github?: GithubAccount
+  /** Top-level directory of the local git repository named by the Execution settings. */
+  project?: string
   feishu?: FeishuBot
+}
+/** The deployment's GitHub account, for code that only runs with one. */
+export function githubOf(deployment: Pick<Deployment, 'github'>): GithubAccount {
+  if (!deployment.github) throw new Error('This installation has no GitHub repository; set one on the GitHub Source')
+  return deployment.github
 }
 export interface FeishuBot { cli: string; appId: string; brand: 'feishu' | 'lark'; botId: string; name: string }
 
@@ -83,15 +95,15 @@ function parsed<T>(schema: z.ZodType<T>, text: string): T | undefined {
   const result = schema.safeParse(value)
   return result.success ? result.data : undefined
 }
-/** Verify the agent's GitHub CLI identity and push access to the configured repository. */
-export async function resolveDeployment(machine: Machine, github: unknown, probe: Probe, path = process.env.PATH ?? ''): Promise<Deployment> {
-  const { stateDir } = machine
+/** Verify the agent's GitHub CLI identity and push access to the configured repository; no account when the GitHub Source names neither a repository nor a CLI. */
+export async function resolveGithub(machine: Machine, github: unknown, probe: Probe, path = process.env.PATH ?? ''): Promise<GithubAccount | undefined> {
   const accounts = GithubAccountsSchema.parse(github ?? {})
   const remote = accounts.repository
+  if (!remote && !accounts.cli) return undefined
   if (!remote) throw new SetupError('repositoryUnset')
   if (!accounts.cli) throw new SetupError('agentCliUnset')
   let cli: string
-  try { cli = executable(accounts.cli, path, workerBin(stateDir)) } catch (error) { throw new SetupError('agentCliMissing', { output: reason(error) }) }
+  try { cli = executable(accounts.cli, path, workerBin(machine.stateDir)) } catch (error) { throw new SetupError('agentCliMissing', { output: reason(error) }) }
   const text = await probe([cli, 'api', 'user']).catch((error: unknown) => { throw new SetupError('agentCliSignedOut', { output: reason(error) }) })
   const agent = parsed(GithubUser, text)
   if (!agent) throw new SetupError('agentCliNoAccount')
@@ -102,7 +114,27 @@ export async function resolveDeployment(machine: Machine, github: unknown, probe
   if (!access) throw new SetupError('repositoryUnreported', { repository: remote })
   const repository = access.name
   if (access.push !== true) throw new SetupError('repositoryReadOnly', { account: agent.login, repository })
-  return { ...machine, repository, github: { cli, login: agent.login, noreply: `${agent.id}+${agent.login}@users.noreply.github.com` } }
+  return { repository, cli, login: agent.login, noreply: `${agent.id}+${agent.login}@users.noreply.github.com` }
+}
+
+/** Verify that the Execution settings' local project is a git work tree, returning its top-level directory; no project when unset. */
+export async function resolveProject(project: string, probe: Probe): Promise<string | undefined> {
+  if (!project) return undefined
+  if (!isAbsolute(project)) throw new SetupError('projectInvalid', { project, output: 'Not an absolute path' })
+  const top = await probe(['git', '-C', project, 'rev-parse', '--show-toplevel']).catch((error: unknown) => {
+    throw new SetupError('projectInvalid', { project, output: reason(error) })
+  })
+  const directory = top.trim()
+  if (!isAbsolute(directory)) throw new SetupError('projectInvalid', { project, output: `git reported ${JSON.stringify(directory)}` })
+  return directory
+}
+
+/** Resolve the agent's workspace: the GitHub repository and account, the local project, or both; refuse when neither is set. */
+export async function resolveDeployment(machine: Machine, workspace: { github?: unknown; project?: string }, probe: Probe, path = process.env.PATH ?? ''): Promise<Deployment> {
+  const github = await resolveGithub(machine, workspace.github, probe, path)
+  const project = await resolveProject(workspace.project ?? '', probe)
+  if (!github && !project) throw new SetupError('workspaceUnset')
+  return { ...machine, ...(github ? { github } : {}), ...(project ? { project } : {}) }
 }
 
 const AuthStatus = z.object({ appId: z.string().regex(/^cli_[A-Za-z0-9]+$/), brand: z.enum(['feishu', 'lark']).default('feishu'), identities: z.object({ bot: z.object({ status: z.string() }) }) })

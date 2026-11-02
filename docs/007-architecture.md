@@ -36,7 +36,7 @@ Shutdown cancels turns, waits for passes, effects and agents, restores the proce
 
 | Part | Module | Does |
 | --- | --- | --- |
-| Setup | `src/app/setup.ts` | Resolves the repository and the accounts by probing their CLIs the way worker shells run them, writes and applies the workers' environment and command shims, and keeps the setup problems; Settings checks a changed account through it, and restarts through it, which runs setup again |
+| Setup | `src/app/setup.ts` | Resolves the workspace (a GitHub repository, a local project or both) and the accounts by probing their CLIs the way worker shells run them, writes and applies the workers' environment and command shims, and keeps the setup problems; Settings checks a changed account through it, and restarts through it, which runs setup again |
 | Passes | `src/app/passes.ts` | One pass at a time, every two seconds and whenever a command asks: the due effects, then `Engine.evaluateDue`; a Source's Trigger reaches the Engine through it |
 | Outbox | `src/app/outbox.ts` | The Engine's `Outbox` port, and the only writer of the receipts: `send` keeps a message's receipt and queues its `reply` effect in one transaction, and the effect's handler sends it through `SourceRegistry.send`; a message waits while its Source is off, and is dropped when the conversation is gone or not listened to |
 | Notices | `src/app/notices.ts` | Converts domain events and worker activity into main-Session messages. `eventNotice` handles domain notices; `reportRelay` forwards questions immediately, keeps ordinary progress on its Ticket, and relays other reports; `followupRelay` names the Tickets that own a human follow-up. Relays arriving during a turn are delivered together at its next step through the DeepSeek Harness inbox |
@@ -279,11 +279,11 @@ Some generic modules still refer directly to GitHub or Feishu:
 - Outbox applies the Feishu chat word limit.
 - `src/app/links.ts` resolves Feishu message links and `repliedTo`. It and Runtime read settings with `feishuSettings`.
 - `src/app/resources.ts` reads the `feishu/` and `github/` originals; `src/app/cards.ts` uses `pullOf` for Ticket cards.
-- Runtime sends `pullEndNotices` for merged or closed Tickets.
+- Runtime sends `pullEndNotices` for merged or closed Tickets, only with a GitHub repository.
 - Executor tools bind reported pull requests with `readPull` and `claimPull`, using the GitHub context exposed by Runtime.
-- MasterAssessor reads repository files with `readRepositoryPath`.
-- Sessions and Prompts register built-in skills only for GitHub and Feishu. Migration converts their schema-10 records.
-- Setup probes only GitHub and Feishu account fields (`SETUP_FIELDS`). Only those Sources receive account setup problems through `SourceContext.problem`.
+- MasterAssessor reads repository files with `readRepositoryPath`, or with `readProjectPath` from the local project's `HEAD` when there is no GitHub repository.
+- Sessions and Prompts register built-in skills only for GitHub and Feishu; Prompts leaves out the GitHub skill without a GitHub repository. Migration converts their schema-10 records.
+- Setup probes only GitHub and Feishu account fields (`SETUP_FIELDS`), and the Execution settings' local project. Only those Sources receive account setup problems through `SourceContext.problem`.
 
 
 ## Modules
@@ -291,7 +291,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | Path | Responsibility |
 | --- | --- |
 | `src/index.ts` | The main plugin entry: reads the machine settings, starts the Runtime, and gives it the restart that a save of a Source's account uses |
-| `src/deployment.ts` | The plugin `Config` and `Machine`; `resolveDeployment` and `resolveFeishuBot` read the repository and the accounts from the Source settings, each CLI run as Executor shells run it; `SETUP_FIELDS` lists the Source fields setup reads. The code names no person, account or organization |
+| `src/deployment.ts` | The plugin `Config` and `Machine`; `resolveDeployment` and `resolveFeishuBot` read the repository and the accounts from the Source settings, and the local project from the Execution settings, each CLI run as Executor shells run it; `Deployment.github` is absent for a local project alone, and `githubOf` fails where GitHub is required; `SETUP_FIELDS` lists the Source fields setup reads. The code names no person, account or organization |
 | `src/setup.ts` | Setup problems: `SetupError`, with a code, the place that fixes it and the English text the log, the main Session and the panel share |
 | `src/policy.ts` | The Policy: the settings schemas by block, the Policy version, the gate and Mandate revalidation |
 | `src/admission.ts` | The admission table's values, each cell's options and defaults, shared with the panel |

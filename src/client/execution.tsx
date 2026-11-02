@@ -103,6 +103,10 @@ export function ExecutionSettings() {
         </div>
         <div className="dt-form dt-block">
           <h2 className="dt-block-title">{t('term.environment')}<InfoTip text={t('environmentIntro')} /></h2>
+          <Field label={t('localProject')} hint={t('localProjectHint')}>
+            <Input className="dt-mono" value={value.project} placeholder={t('localProjectEmpty')} spellCheck={false} pattern="/.*"
+              onChange={event => edit({ project: event.target.value })} />
+          </Field>
           <Field label={t('executionDirectory')} hint={t('executionDirectoryHint')} note={value.directory ? undefined
             : t('executionDirectoryDefault', { root: environment.root })}>
             <Input className="dt-mono" value={value.directory} placeholder={t('executionDirectoryEmpty')} spellCheck={false} pattern="/.*"

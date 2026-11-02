@@ -58,16 +58,35 @@ describe('configuration schema', () => {
 
 describe('setup', () => {
   it('reads the repository from the GitHub Source and the accounts from their CLIs, skipping the worker shims', async () => {
-    const deployment = await resolveDeployment(machine(), { repository: 'acme/widgets', cli: 'gh' }, probe, path)
-    expect(deployment).toMatchObject({ repository: 'acme/widgets', github: { cli: join(dir, 'bin', 'gh'), login: 'Agent-Bot', noreply: '7+Agent-Bot@users.noreply.github.com' } })
-    expect(deployment.github).toEqual({ cli: join(dir, 'bin', 'gh'), login: 'Agent-Bot', noreply: '7+Agent-Bot@users.noreply.github.com' })
+    const deployment = await resolveDeployment(machine(), { github: { repository: 'acme/widgets', cli: 'gh' } }, probe, path)
+    expect(deployment.github).toEqual({ repository: 'acme/widgets', cli: join(dir, 'bin', 'gh'), login: 'Agent-Bot', noreply: '7+Agent-Bot@users.noreply.github.com' })
     expect(deployment).not.toHaveProperty('feishu')
+    expect(deployment).not.toHaveProperty('project')
     // A renamed repository is still resolved by its old name; notifications carry GitHub's current full_name.
-    expect((await resolveDeployment(machine(), { repository: 'acme/gadgets', cli: 'gh' }, probe, path)).repository).toBe('acme/widgets')
+    expect((await resolveDeployment(machine(), { github: { repository: 'acme/gadgets', cli: 'gh' } }, probe, path)).github?.repository).toBe('acme/widgets')
+  })
+  it('serves a local git repository without GitHub, and refuses a workspace that is neither', async () => {
+    const project = join(dir, 'project')
+    mkdirSync(join(project, 'src'), { recursive: true })
+    await exec('git', ['init', '-q', project], { env: gitEnv() })
+    const top = (await exec('git', ['-C', project, 'rev-parse', '--show-toplevel'], { env: gitEnv() })).stdout.trim()
+    const local = await resolveDeployment(machine(), { project: join(project, 'src') }, probe, path)
+    expect(local.project).toBe(top)
+    expect(local).not.toHaveProperty('github')
+    const both = await resolveDeployment(machine(), { github: { repository: 'acme/widgets', cli: 'gh' }, project }, probe, path)
+    expect(both).toMatchObject({ project: top, github: { repository: 'acme/widgets' } })
+    await expect(resolveDeployment(machine(), {}, probe, path)).rejects.toEqual(setupError('github', 'workspaceUnset'))
+    await expect(resolveDeployment(machine(), { github: { repository: '', cli: '' }, project: '' }, probe, path)).rejects.toEqual(setupError('github', 'workspaceUnset'))
+    const plain = join(dir, 'plain')
+    mkdirSync(plain, { recursive: true })
+    await expect(resolveDeployment(machine(), { project: plain }, probe, path)).rejects.toEqual(setupError('execution', 'projectInvalid', { project: plain }))
+    await expect(resolveDeployment(machine(), { project: 'relative' }, probe, path)).rejects.toEqual(setupError('execution', 'projectInvalid', { project: 'relative' }))
+    // A partial GitHub configuration is still an error, even with a local project.
+    await expect(resolveDeployment(machine(), { github: { cli: 'gh' }, project }, probe, path)).rejects.toEqual(setupError('github', 'repositoryUnset'))
   })
   it('names what setup needs and where it is set', async () => {
     const needs = (place: string, code: string, values: Record<string, unknown>, github: unknown) =>
-      expect(resolveDeployment(machine(), github, probe, path)).rejects.toEqual(setupError(place, code, values))
+      expect(resolveDeployment(machine(), { github }, probe, path)).rejects.toEqual(setupError(place, code, values))
     const repository = 'acme/widgets'
     await needs('github', 'repositoryUnset', {}, { cli: 'gh' })
     await needs('github', 'agentCliUnset', {}, { repository })

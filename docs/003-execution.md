@@ -67,15 +67,16 @@ The prepare command and Executor instructions receive the same execution variabl
 | Variable | Registered by | Value |
 | --- | --- | --- |
 | `DSH_SUPERAGENT_DIR`, `DSH_SUPERAGENT_NAME`, `DSH_SUPERAGENT_TICKET` | Executor | The Ticket's directory, short name and id |
+| `DSH_SUPERAGENT_PROJECT` | Executor | The local project's git repository, or empty when none is set |
 | `DSH_SUPERAGENT_BLOCKED_COMMANDS` | Executor | Commands the Executor may not run |
-| `DSH_SUPERAGENT_GITHUB_REPOSITORY` | GitHub | The repository the Source watches, `owner/name` |
+| `DSH_SUPERAGENT_GITHUB_REPOSITORY` | GitHub | The repository the Source watches, `owner/name`; empty for an installation without GitHub, as are the other GitHub variables |
 | `DSH_SUPERAGENT_GITHUB_ACCOUNT`, `DSH_SUPERAGENT_GITHUB_COMMIT_EMAIL` | GitHub | The agent account and its commit email |
 | `DSH_SUPERAGENT_GITHUB_NUMBER`, `DSH_SUPERAGENT_GITHUB_PR_HEAD` | GitHub | The Issue or pull request that started the Ticket, and its head ref when it is a pull request |
 | `DSH_SUPERAGENT_FEISHU_BOT`, `DSH_SUPERAGENT_FEISHU_CHAT` | Feishu | The bot, and the chat that started the Ticket |
 
 Ticket-specific values come from its directory and originating Trigger. Other values come from the current deployment settings. Only the panel can change execution environment settings; text sent to the main Session cannot change the configured shell command.
 
-Workers reach GitHub through the agent account's `gh` and Feishu through the bot's `lark-cli`. Blocked commands fail when invoked by name.
+Workers reach GitHub through the agent account's `gh` and Feishu through the bot's `lark-cli`. Without a GitHub repository, `gh` fails. Blocked commands fail when invoked by name.
 
 These wrappers and directories establish defaults, not a security boundary. A worker can still execute a program by absolute path.
 
@@ -91,7 +92,7 @@ Reviews without a body, such as approvals, also arrive as Triggers and can wake 
 
 ## How a Ticket ends
 
-- **Ready without a pull request:** a `ready` Report ends the Ticket as completed.
+- **Ready without a pull request:** a `ready` Report ends the Ticket as completed. For a local project without GitHub this is how code is delivered: the Report names the Ticket branch and its head commit, and a person merges it (see Local project in 006 Deployment).
 - **Nothing to do:** an Executor that finds no work for a person to act on, such as a request that does not reproduce or is superseded, reports `dropped`. The Ticket ends without a message, unless a matched rule asks for one, and a person's later message on its Threads resumes it.
 ### Pull requests
 

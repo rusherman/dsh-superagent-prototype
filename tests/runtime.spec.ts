@@ -94,12 +94,12 @@ const subprocess = { spawn: vi.fn((spec: { argv: readonly string[] }) => {
   return { done: Promise.resolve({ exitCode: answer instanceof Error ? 1 : 0, signal: null }), collected: { stdout: reader(answer instanceof Error ? '' : answer), stderr: reader(answer instanceof Error ? answer.message : '') } }
 }) }
 /** Source account overrides for test setup; `feishu: null` disables the Feishu source. */
-interface Accounts { github?: Record<string, unknown>; feishu?: Record<string, unknown> | null }
+interface Accounts { github?: Record<string, unknown>; feishu?: Record<string, unknown> | null; project?: string }
 function seed(store: Store, accounts: Accounts = {}): void {
   const settings = store.settings()
   const { feishu: _feishu, ...others } = settings.sources
   const feishu = accounts.feishu === null ? undefined : { ...settings.sources.feishu?.config, cli: BOT(), ...accounts.feishu }
-  store.saveSettings(SettingsSchema.parse({ ...settings, sources: { ...others, github: { enabled: true, config: { repository: 'acme/widgets', cli: AGENT(), ...accounts.github } }, ...feishu ? { feishu: { enabled: true, config: feishu } } : {} } }))
+  store.saveSettings(SettingsSchema.parse({ ...settings, executor: { ...settings.executor, project: accounts.project ?? '' }, sources: { ...others, github: { enabled: true, config: { repository: 'acme/widgets', cli: AGENT(), ...accounts.github } }, ...feishu ? { feishu: { enabled: true, config: feishu } } : {} } }))
 }
 let restarts: ReturnType<typeof vi.fn<() => void>>
 async function restart(machine: Partial<Machine> = {}, accounts: Accounts = {}): Promise<Runtime> {
@@ -892,6 +892,42 @@ it('checks only the account a Source save changes, so a problem setup has elsewh
   const value = github.value as { enabled: boolean; config: Record<string, unknown> }
   expect(await next.settings.save('source:github', { ...value, config: { ...value.config, cli: OTHER() } }, github.revision, 'panel'))
     .toMatchObject({ saved: true, restarting: true })
+})
+
+it('serves a local project without GitHub: setup passes, the GitHub Source polls nothing, and the panel names the project', async () => {
+  const PROJECT = '/srv/widgets'
+  answers[`git -C ${PROJECT} rev-parse --show-toplevel`] = `${PROJECT}\n`
+  answers['git config -z --show-origin --get-all user.useConfigOnly'] = `file:${workerGitConfig(directory)}\0true\0`
+  const next = await restart({}, { github: { repository: '', cli: '' }, project: PROJECT })
+  await next.ready
+  expect(next.setupProblem).toBeUndefined()
+  expect(next.configured()).toBe(true)
+  expect(next.deployment).toMatchObject({ project: PROJECT })
+  expect(next.deployment.github).toBeUndefined()
+  expect((await api('GET', 'state')).body).toMatchObject({ setup: { accounts: { repository: null, agent: null, project: PROJECT } } })
+  expect(next.prompts.skills(next.prompts.current().config).map(([name]) => name)).not.toContain('github')
+  expect(next.prompts.compose(next.prompts.current().config, 'worker')).toMatch(/DSH_SUPERAGENT_PROJECT\W+\/srv\/widgets/)
+  // Neither a GitHub repository nor a local project: setup says where to name one.
+  const none = await restart({}, { github: { repository: '', cli: '' } })
+  await none.ready
+  expect(none.setupProblem).toMatchObject({ place: 'github', code: 'workspaceUnset' })
+  // A local project that is not a git repository is fixed in the Execution settings.
+  answers[`git -C /srv/plain rev-parse --show-toplevel`] = new Error('fatal: not a git repository')
+  const plain = await restart({}, { github: { repository: '', cli: '' }, project: '/srv/plain' })
+  await plain.ready
+  expect(plain.setupProblem).toMatchObject({ place: 'execution', code: 'projectInvalid', values: { project: '/srv/plain' } })
+})
+
+it('checks a changed local project before saving it, restarts after the save, and lets only the panel change it', async () => {
+  const save = (project: string, origin: SettingsOrigin = 'panel') =>
+    runtime.settings.save('executor', { ...runtime.store.settings().executor, project }, runtime.store.blockRevision('executor'), origin)
+  await expect(save('/srv/widgets', 'tool')).rejects.toThrow('can only be changed in the management panel')
+  answers['git -C /srv/plain rev-parse --show-toplevel'] = new Error('fatal: not a git repository')
+  await expect(save('/srv/plain')).rejects.toMatchObject({ code: 'projectInvalid' })
+  expect(restarts).not.toHaveBeenCalled()
+  answers['git -C /srv/widgets rev-parse --show-toplevel'] = '/srv/widgets\n'
+  expect(await save('/srv/widgets')).toMatchObject({ saved: true, restarting: true })
+  await vi.waitFor(() => expect(restarts).toHaveBeenCalledTimes(1))
 })
 
 it('lets only the panel change the execution environment, since it decides what runs as a shell command and which CLIs workers reach', async () => {
