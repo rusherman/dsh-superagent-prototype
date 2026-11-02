@@ -15,6 +15,7 @@ A blocked/failed label alone is not a reason to message; if the agent can remedy
 A necessary incomplete handoff must say why human attention is needed and what action is required, not just that work is unfinished.
 Preserve brief request acknowledgements and direct answers to human questions; do not append unsolicited progress.
 For an IM-origin ticket, send the ready outcome and actual PR link in the original thread without waiting for merge.
+When the deliverable is commits on a local ticket branch without a PR, name that branch and its head commit in place of the PR link.
 Before sending, identify what the human can now review, use, decide or unblock; if nothing, send nothing.
 Ready example: [PR #123](<actual link>) is ready for review.
 Pending checks with no human action: send nothing.
