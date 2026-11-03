@@ -1,7 +1,13 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { Commands } from '../src/infra/commands.ts'
 import { testDeployment } from './fixtures/deployment.ts'
-import { readGithub, pullChecks } from '../src/sources/github-read.ts'
+import { readGithub, readProjectPath, pullChecks } from '../src/sources/github-read.ts'
+import { execFile } from 'node:child_process'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { promisify } from 'node:util'
+import { gitEnv } from './fixtures/git.ts'
 
 const commands = new Commands(() => testDeployment(), {}, new AbortController().signal)
 afterEach(() => vi.restoreAllMocks())
@@ -65,4 +71,23 @@ it('reads an Issue or PR as its author, time, title, state, description and a PR
     head: { ref: 'agent/fix', sha: 'abc', repo: {} }, base: { ref: 'main' }, labels: [{ name: 'ui', color: 'fff' }], node_id: 'x', _links: {} })
   expect(await readGithub(commands, 'github/pulls/9')).toEqual({ number: 9, title: 'Fix the margin', state: 'open', draft: true, head: 'agent/fix',
     base: 'main', labels: ['ui'], id: '9', from: 'carol', at: '2026-09-09T00:00:00Z', text: 'Details', url: 'https://github.com/acme/widgets/pull/9' })
+})
+
+it('reads committed files and directory listings of a local project, hiding dot entries and refusing paths outside it', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'project-read-'))
+  try {
+    const git = (...args: string[]) => promisify(execFile)('git', args, { cwd: dir, env: gitEnv({ GIT_AUTHOR_NAME: 'a', GIT_AUTHOR_EMAIL: 'a@x', GIT_COMMITTER_NAME: 'a', GIT_COMMITTER_EMAIL: 'a@x' }) })
+    await git('init', '-q')
+    mkdirSync(join(dir, 'src'))
+    writeFileSync(join(dir, 'src', 'main.ts'), 'export {}\n'); writeFileSync(join(dir, 'README.md'), '# Widgets\n'); writeFileSync(join(dir, '.env'), 'x')
+    await git('add', '.'); await git('commit', '-qm', 'init')
+    writeFileSync(join(dir, 'README.md'), 'uncommitted')
+    const local = new Commands(() => testDeployment(), gitEnv(), new AbortController().signal)
+    expect(await readProjectPath(local, dir, 'README.md', 'file')).toBe('# Widgets\n')
+    expect(await readProjectPath(local, dir, '', 'directory')).toBe('README.md\nsrc')
+    expect(await readProjectPath(local, dir, 'src', 'directory')).toBe('main.ts')
+    await expect(readProjectPath(local, dir, 'README.md', 'directory')).rejects.toThrow('README.md is not a directory')
+    await expect(readProjectPath(local, dir, '../etc/passwd', 'file')).rejects.toThrow('Only non-hidden repository source paths')
+    await expect(readProjectPath(local, dir, '.env', 'file')).rejects.toThrow('Only non-hidden repository source paths')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
 })

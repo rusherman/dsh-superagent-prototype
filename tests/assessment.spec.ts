@@ -10,10 +10,11 @@ import { testDeployment } from './fixtures/deployment.ts'
 import { deferred } from './fixtures/async.ts'
 import { githubKind } from '../src/sources/github.ts'
 import { SourceRegistry } from '../src/sources/registry.ts'
+import type { Deployment } from '../src/deployment.ts'
 
 /** Assessor fixture backed by in-memory repositories and fake GitHub Issue and file reads. */
 function setup(strength: 'explicit' | 'inferred' = 'inferred', bodies = Array.from({ length: 5 }, (_, i) => `comment ${i}`),
-  threadContext?: AssessorHost['threadContext']) {
+  threadContext?: AssessorHost['threadContext'], deployment: Deployment = testDeployment()) {
   const comments = bodies.map((body, i) => ({ id: i, html_url: `https://github.com/acme/widgets/issues/1#c${i}`,
     user: { login: 'bob' }, created_at: '2026-09-09T00:00:00Z', body }))
   const gate = { issue: undefined as Promise<void> | undefined }
@@ -37,7 +38,7 @@ function setup(strength: 'explicit' | 'inferred' = 'inferred', bodies = Array.fr
   sources.register(githubKind)
   let engine!: Engine
   const host: AssessorHost = {
-    get engine() { return engine }, commands, deployment: testDeployment(), settings: () => SettingsSchema.parse({}),
+    get engine() { return engine }, commands, deployment, settings: () => SettingsSchema.parse({}),
     threadContext: threadContext ?? (trigger => sources.threadContext(trigger)),
     effects: { enqueue: () => {}, handle: () => {} }, paused: () => false, deliver: async () => {}, candidateCard: async candidate => ({ eval_id: candidate.evalId }),
   }
@@ -57,11 +58,28 @@ function setup(strength: 'explicit' | 'inferred' = 'inferred', bodies = Array.fr
   // Per-Eval state retained by the assessor and released when the Eval ends.
   const kept = assessor as unknown as { evals: Map<string, unknown> }
   const size = () => kept.evals.size
-  return { repo, engine, assessor, tools, size, gate }
+  return { repo, engine, assessor, tools, size, gate, commands }
 }
 const issue = (n: number): Trigger => ({ id: `issue-${n}`, source: 'github', threads: [{ source: 'github', id: String(n) }], actor: { source: 'github', id: 'bob' }, human: true,
   at: new Date(Date.UTC(2026, 8, 9, 0, 0, n)).toISOString(), text: `issue ${n}`, url: `https://github.com/acme/widgets/issues/${n}`, meta: { number: n } })
 const signal = new AbortController().signal
+
+it('selects named repositories during assessment and isolates cached reads of identical paths', async () => {
+  const deployment = testDeployment({ github: undefined, projects: [{ name: 'frontend', path: '/srv/web' }, { name: 'backend', path: '/srv/api' }] })
+  const s = setup('inferred', [], undefined, deployment)
+  const git = vi.fn(async (_args: string[], cwd: string) => `content of ${cwd}\n`.repeat(300))
+  s.commands.git = git
+  s.engine.receive(issue(1)); s.engine.evaluateDue()
+  const read = (project?: string, offset = 0) => s.tools.orchestrator_eval_read!({ trigger_id: 'issue-1', resource: 'file', path: 'README.md', offset, ...project ? { project } : {} }, signal)
+  await expect(read()).rejects.toThrow('Choose a local repository')
+  await expect(read('unknown')).rejects.toThrow('Available: frontend, backend')
+  expect(await read('frontend')).toMatchObject({ text: expect.stringContaining('content of /srv/web') })
+  expect(await read('backend')).toMatchObject({ text: expect.stringContaining('content of /srv/api') })
+  expect(await read('frontend', 4000)).toMatchObject({ text: expect.stringContaining('content of /srv/web') })
+  expect(git).toHaveBeenCalledTimes(2)
+  expect(git).toHaveBeenCalledWith(['show', 'HEAD:README.md'], '/srv/api')
+  expect(() => EvalReadSchema.parse({ trigger_id: 'issue-1', resource: 'thread', project: 'frontend' })).toThrow('only for file/directory')
+})
 
 it('keeps nothing for an Eval once it is decided, as for one that timed out', async () => {
   const s = setup()

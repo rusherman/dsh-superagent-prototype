@@ -37,6 +37,9 @@ it('saves the Eval block on the Policy settings and the Executor with its execut
   await type(field<HTMLInputElement>(zh.maxWorkers), '5')
   // An empty root uses the default directory, which the field names instead of looking set.
   expect(field<HTMLInputElement>(zh.executionDirectory).closest('.dt-field')!.querySelector('small')?.textContent).toBe('留空时用 /srv/dsh-superagent/work')
+  await click(find(zh.addRow, '.dt-field button'))
+  await type(document.querySelector<HTMLInputElement>(`input[aria-label="${zh.localProjectName}"]`)!, 'widgets')
+  await type(document.querySelector<HTMLInputElement>(`input[aria-label="${zh.localProjectPath}"]`)!, '/srv/widgets')
   await type(field<HTMLInputElement>(zh.executionDirectory), '/srv/work')
   // A variable picked from the list goes where the caret is in the prepare command.
   const prepare = field<HTMLTextAreaElement>(zh.prepareCommand)
@@ -53,7 +56,7 @@ it('saves the Eval block on the Policy settings and the Executor with its execut
     'worker-model'); await type(effort as HTMLInputElement, 'high')
   expect([...document.querySelectorAll('#dt-worker-model-efforts option')].map(option => option.getAttribute('value'))).toEqual(['high'])
   await click(zh.save)
-  expect(server.settings.executor).toEqual({ maxWorkers: 5, directory: '/srv/work',
+  expect(server.settings.executor).toEqual({ maxWorkers: 5, projects: [{ name: 'widgets', path: '/srv/widgets' }], directory: '/srv/work',
     prepare: 'git worktree add "$DSH_SUPERAGENT_DIR"', blockedCommands: ['gh-personal', 'gh.other'], model: { provider: 'worker-provider',
       model: 'worker-model', reasoningEffort: 'high' } })
   expect(server.requests.filter(request => request.method === 'PUT').map(request => request.path)).toEqual(['settings/eval',
@@ -72,6 +75,24 @@ it('loads configuration history on demand with localized changes, Source field l
   await click(zh.configHistory)
   for (const expected of ['第 3 次保存 · 从群同步', '生成策略版本 abcdef12', '接单模式：关闭 → 仅观察', '飞书 · 能发起工作的飞书用户 新增：Bob', '飞书 · 同步来源群：未设置 → oc_team',
     '因策略变更通知了 1 个进行中的工单：修复回归']) expect(text()).toContain(expected)
+})
+
+it('adds, edits and removes named local repositories', async () => {
+  await mount()
+  await click(zh['tab.execution'])
+  await click(find(zh['tab.settings'], '.dt-status-head button'))
+  const add = () => click(find(zh.addRow, '.dt-field button'))
+  const names = () => [...document.querySelectorAll<HTMLInputElement>(`input[aria-label="${zh.localProjectName}"]`)]
+  const paths = () => [...document.querySelectorAll<HTMLInputElement>(`input[aria-label="${zh.localProjectPath}"]`)]
+  await add()
+  await type(names()[0]!, 'web'); await type(paths()[0]!, '/srv/web')
+  await add()
+  await type(names()[1]!, 'api'); await type(paths()[1]!, '/srv/api')
+  await click(zh.save)
+  expect(server.settings.executor.projects).toEqual([{ name: 'web', path: '/srv/web' }, { name: 'api', path: '/srv/api' }])
+  await click(document.querySelector<HTMLButtonElement>('.dt-rows-item button')!)
+  await click(zh.save)
+  expect(server.settings.executor.projects).toEqual([{ name: 'api', path: '/srv/api' }])
 })
 
 it('shows save and discard only while a settings block has edits, at the end of that block', async () => {

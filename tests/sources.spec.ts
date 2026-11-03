@@ -15,7 +15,7 @@ import { cursorAt, POLL_HORIZON_MS } from '../src/sources/poll.ts'
 import { Store } from '../src/app/store.ts'
 import { Commands, commandError } from '../src/infra/commands.ts'
 import { HealthBoard } from '../src/infra/health.ts'
-import { testDeployment } from './fixtures/deployment.ts'
+import { localDeployment, testDeployment } from './fixtures/deployment.ts'
 import { SettingsSchema, settingsPolicy } from '../src/policy.ts'
 import { sourceContextOf, type SourceContextDeps } from '../src/app/source-context.ts'
 import { SetupError, type SetupProblem } from '../src/setup.ts'
@@ -779,6 +779,13 @@ describe('github source', () => {
       const off = await start({}, { enabled: false, config: {} })
       await vi.waitFor(() => expect(off.value.health.github).toMatchObject({ state: 'paused', code: 'sourceOff' }))
       await off.stop()
+      // An installation that serves only a local project polls nothing, and says so while the Source is on.
+      const polled = vi.spyOn(Commands.prototype, 'run')
+      const local = await start({ deployment: localDeployment() })
+      await vi.waitFor(() => expect(local.value.health.github).toMatchObject({ state: 'paused', code: 'githubUnset' }))
+      expect(polled).not.toHaveBeenCalled()
+      await local.stop()
+      polled.mockRestore()
       // Rounds fail, succeed, fail, fail: only the last two in a row make the error. A round reads through a Commands of its own.
       const outcomes = [false, true, false, false]
       let round = 0

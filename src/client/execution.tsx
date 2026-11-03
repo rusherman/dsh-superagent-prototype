@@ -3,7 +3,7 @@ import { useRef, useState } from 'react'
 import { TICKET_FILTERS, type TicketFilter } from '../app/api.ts'
 import { LIMITS } from '../limits.ts'
 import { usePoll, type SettingsView, type SourceView, type StateView } from './api.ts'
-import { DisclosureRow, Icon, InfoTip, Input, Pill } from './controls.tsx'
+import { Button, DisclosureRow, Icon, InfoTip, Input, Pill } from './controls.tsx'
 import { SaveBar } from './draft.tsx'
 import { usePanel } from './provider.tsx'
 import { TicketLine } from './rows.tsx'
@@ -103,6 +103,24 @@ export function ExecutionSettings() {
         </div>
         <div className="dt-form dt-block">
           <h2 className="dt-block-title">{t('term.environment')}<InfoTip text={t('environmentIntro')} /></h2>
+          <Field label={t('localProject')} hint={t('localProjectHint')}>
+            <div>
+            <ul className="dt-rows" style={{ ['--dt-columns' as string]: 2 }}>
+              {value.projects.map((project, index) => <li className="dt-rows-item" key={index}>
+                <Input aria-label={t('localProjectName')} placeholder={t('localProjectName')} className="dt-mono"
+                  required pattern="[a-z][a-z0-9_-]{0,47}" spellCheck={false} value={project.name}
+                  onChange={event => edit({ projects: value.projects.map((row, at) => at === index ? { ...row, name: event.target.value } : row) })} />
+                <Input aria-label={t('localProjectPath')} placeholder={t('localProjectPath')} className="dt-mono"
+                  required pattern="/.*" spellCheck={false} value={project.path}
+                  onChange={event => edit({ projects: value.projects.map((row, at) => at === index ? { ...row, path: event.target.value } : row) })} />
+                <Button size="sm" icon={<Icon name="trash" />} aria-label={t('removeRow', { name: project.name || t('localProject') })}
+                  onClick={() => edit({ projects: value.projects.filter((_, at) => at !== index) })} />
+              </li>)}
+            </ul>
+            <Button size="sm" icon={<Icon name="plus" />}
+              onClick={() => edit({ projects: [...value.projects, { name: '', path: '' }] })}>{t('addRow')}</Button>
+            </div>
+          </Field>
           <Field label={t('executionDirectory')} hint={t('executionDirectoryHint')} note={value.directory ? undefined
             : t('executionDirectoryDefault', { root: environment.root })}>
             <Input className="dt-mono" value={value.directory} placeholder={t('executionDirectoryEmpty')} spellCheck={false} pattern="/.*"

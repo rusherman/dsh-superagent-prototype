@@ -5,11 +5,14 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SENSITIVE_ENV_PATTERN, type SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
-import { GIT_LOCATION, agentVariables, credentialHelper, runAsWorker, verifyDirectory, withoutDirectory, workerBin, workerGitConfig, writeEnvironment }
+import { GIT_LOCATION, agentVariables, credentialHelper, runAsWorker, verifyDirectory, withoutDirectory, workerBin, verifyEnvironment, workerGitConfig, writeEnvironment }
   from '../src/infra/environment.ts'
 import { CliError } from '../src/infra/commands.ts'
-import { testDeployment } from './fixtures/deployment.ts'
+import { localDeployment, testDeployment } from './fixtures/deployment.ts'
 import { gitEnv } from './fixtures/git.ts'
+import { environmentOf } from '../src/app/execution-environment.ts'
+import { SettingsSchema } from '../src/policy.ts'
+import { SourceRegistry } from '../src/sources/registry.ts'
 
 // Git and shell subprocesses can exceed the 5s default timeout when the test suite runs in parallel.
 vi.setConfig({ testTimeout: 30_000 })
@@ -130,6 +133,36 @@ const subprocess = (config: string): SubprocessRuntime => ({
     return { done, collected: { stdout: reader('stdout'), stderr: reader('stderr') } }
   },
 }) as unknown as SubprocessRuntime
+describe('an installation without GitHub', () => {
+  const signal = new AbortController().signal
+  it('makes `gh` fail, blocks commands without naming an account, and writes no github.com credentials', async () => {
+    await writeEnvironment(localDeployment({ stateDir: dir, feishu: undefined }), ['personal-gh'])
+    const bin = workerBin(dir)
+    await expect(exec(join(bin, 'gh'), ['api', 'user'])).rejects.toMatchObject({ code: 1, stderr: 'gh is unavailable: this installation has no GitHub repository; it serves a local project.\n' })
+    await expect(exec(join(bin, 'personal-gh'), [])).rejects.toMatchObject({ code: 1, stderr: 'personal-gh is blocked in this installation.\n' })
+    const config = readFileSync(workerGitConfig(dir), 'utf8')
+    expect(config).toContain('useConfigOnly = true')
+    expect(config).not.toContain('github.com')
+  })
+  it('verifies that git reads the worker configuration, and refuses a git that does not', async () => {
+    const deployment = localDeployment({ stateDir: dir })
+    await writeEnvironment(deployment, [])
+    await expect(verifyEnvironment(deployment, subprocess(workerGitConfig(dir)), signal)).resolves.toBeUndefined()
+    writeFileSync(join(dir, 'global'), '')
+    await expect(verifyEnvironment(deployment, subprocess(join(dir, 'global')), signal)).rejects.toMatchObject({ code: 'gitTooOld' })
+  })
+  it('exposes every named repository as JSON and leaves the legacy path empty unless there is exactly one', () => {
+    const projects = [{ name: 'web', path: '/srv/web app' }, { name: 'api', path: '/srv/api' }]
+    const values = (repositories: typeof projects) => Object.fromEntries(environmentOf({
+      deployment: localDeployment({ projects: repositories }), settings: SettingsSchema.parse({}),
+      sources: new SourceRegistry(() => SettingsSchema.parse({})),
+    }).map(variable => [variable.key, variable.value]))
+    expect(JSON.parse(values(projects).DSH_SUPERAGENT_PROJECTS!)).toEqual(projects)
+    expect(values(projects).DSH_SUPERAGENT_PROJECT).toBe('')
+    expect(values([projects[0]!]).DSH_SUPERAGENT_PROJECT).toBe('/srv/web app')
+    expect(values([]).DSH_SUPERAGENT_PROJECTS).toBe('[]')
+  })
+})
 describe('ticket directory check', () => {
   const signal = new AbortController().signal
   const env = () => gitEnv({ GIT_CONFIG_GLOBAL: join(dir, 'global'), GIT_CONFIG_NOSYSTEM: '1' })
@@ -152,6 +185,15 @@ describe('ticket directory check', () => {
     await git('init', '-q', 'repo')
     writeFileSync(join(dir, 'repo', '.git', 'config'), '[core\n')
     await expect(check('repo')).rejects.toThrow(/bad config/)
+  })
+  it('also checks named repositories inside the ticket directory, including linked worktrees', async () => {
+    await git('init', '-q', 'source')
+    await git('-C', 'source', '-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'initial', '--allow-empty')
+    await git('-C', 'source', 'worktree', 'add', '-qb', 'agent/test', join(dir, 'real', 'web'))
+    await expect(verifyDirectory(join(dir, 'real'), subprocess(join(dir, 'global')), signal, ['web', 'not-created'])).resolves.toBeUndefined()
+    await git('-C', 'source', 'config', 'credential.helper', 'personal')
+    await expect(verifyDirectory(join(dir, 'real'), subprocess(join(dir, 'global')), signal, ['web']))
+      .rejects.toThrow(`repository in ${join(dir, 'real', 'web')} sets credential.helper`)
   })
   it('reports a failed command\'s exit status', async () => {
     const failing = ['sh', '-c', 'echo nope >&2; exit 3']
