@@ -52,6 +52,8 @@ Before the first Assignment, if the Ticket directory does not exist, the prepare
 
 A failed command fails the Ticket and records its output. A retry or a person's message on one of the Ticket's Threads tries preparation again. A typical command uses `git worktree` to create a checkout. A pull request belongs to the Ticket when its branch's last path segment matches the Ticket's short name.
 
+For named local repositories, the prepare command can create all worktrees at `<Ticket directory>/<repository name>` on `agent/<Ticket short name>`. Workers select the repositories the request actually targets and leave others unchanged; an unclear target uses the existing human-action question flow. Source directories are not worker checkouts. Local commits are never pushed, including when a GitHub repository is also configured.
+
 ### Concurrency
 
 A Ticket holds a worker slot from the start of a launch, including preparation, or from the delivery that wakes its idle Executor. It also holds the slot throughout an active turn.
@@ -67,7 +69,8 @@ The prepare command and Executor instructions receive the same execution variabl
 | Variable | Registered by | Value |
 | --- | --- | --- |
 | `DSH_SUPERAGENT_DIR`, `DSH_SUPERAGENT_NAME`, `DSH_SUPERAGENT_TICKET` | Executor | The Ticket's directory, short name and id |
-| `DSH_SUPERAGENT_PROJECT` | Executor | The local project's git repository, or empty when none is set |
+| `DSH_SUPERAGENT_PROJECTS` | Executor | JSON array of local repositories, each `{"name":"web","path":"/absolute/web"}` |
+| `DSH_SUPERAGENT_PROJECT` | Executor | Legacy prepare compatibility: the path when exactly one local repository is configured, otherwise empty |
 | `DSH_SUPERAGENT_BLOCKED_COMMANDS` | Executor | Commands the Executor may not run |
 | `DSH_SUPERAGENT_GITHUB_REPOSITORY` | GitHub | The repository the Source watches, `owner/name`; empty for an installation without GitHub, as are the other GitHub variables |
 | `DSH_SUPERAGENT_GITHUB_ACCOUNT`, `DSH_SUPERAGENT_GITHUB_COMMIT_EMAIL` | GitHub | The agent account and its commit email |
@@ -92,7 +95,7 @@ Reviews without a body, such as approvals, also arrive as Triggers and can wake 
 
 ## How a Ticket ends
 
-- **Ready without a pull request:** a `ready` Report ends the Ticket as completed. For a local project without GitHub this is how code is delivered: the Report names the Ticket branch and its head commit, and a person merges it (see Local project in 006 Deployment).
+- **Ready without a pull request:** a `ready` Report ends the Ticket as completed. For local repositories this is how code is delivered: the Report and source reply name each changed repository, its Ticket branch and head commit, and a person merges each branch. Cross-repository commits are separate git transactions, not an atomic multi-repository commit (see Local repositories in 006 Deployment).
 - **Nothing to do:** an Executor that finds no work for a person to act on, such as a request that does not reproduce or is superseded, reports `dropped`. The Ticket ends without a message, unless a matched rule asks for one, and a person's later message on its Threads resumes it.
 ### Pull requests
 

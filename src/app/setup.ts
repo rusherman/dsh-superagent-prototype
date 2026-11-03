@@ -19,7 +19,7 @@ const workspaceOf = (settings: Settings) => ({ github: settings.sources.github?.
 export const setupChanged = (before: Settings, after: Settings): boolean => setupFields(before) !== setupFields(after)
 
 /**
- * Resolves the agent's workspace (GitHub repository and account, local project, or both) and optional Feishu bot by probing CLIs, then writes and applies the isolated git and shim environment used by worker processes.
+ * Resolves the workspace (GitHub repository/account and/or local repositories) and optional Feishu bot by probing CLIs, then writes and applies the isolated git and shim environment used by worker processes.
  * `Runtime` runs it at startup to gate orchestration readiness, while `Settings` uses it to validate account changes, update blocked command shims, and schedule restarts.
  */
 export class Setup {
@@ -59,7 +59,7 @@ export class Setup {
   /** Defer the restart to the next macrotask so the current HTTP or tool caller receives its response first. */
   restart(): void { setTimeout(this.host.restart, 0) }
   /**
-   * Verify account CLIs or the local project for a modified block before saving, ignoring setup errors belonging to other blocks.
+   * Verify account CLIs or local repositories for a modified block before saving, ignoring setup errors belonging to other blocks.
    * A missing workspace belongs to whichever block was saved, since either could name one.
    */
   async checkAccounts(block: SettingsBlock, settings: Settings): Promise<void> {

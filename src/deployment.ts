@@ -1,4 +1,4 @@
-/** Plugin configuration and startup verification for the agent's workspace: a GitHub repository with the agent CLI identity, a local project, or both. */
+/** Plugin configuration and startup verification for a GitHub repository, named local git repositories, or both. */
 import { LIMITS } from './limits.ts'
 import { accessSync, constants, statSync } from 'node:fs'
 import { delimiter, isAbsolute, join } from 'node:path'
@@ -142,7 +142,7 @@ export async function resolveProjects(projects: LocalProject[], probe: Probe, st
   return result
 }
 
-/** Resolve the agent's workspace: the GitHub repository and account, the local project, or both; refuse when neither is set. */
+/** Resolve the GitHub repository/account and local git repositories; refuse when neither is set. */
 export async function resolveDeployment(machine: Machine, workspace: { github?: unknown; projects?: LocalProject[] }, probe: Probe, path = process.env.PATH ?? ''): Promise<Deployment> {
   const github = await resolveGithub(machine, workspace.github, probe, path)
   const projects = await resolveProjects(workspace.projects ?? [], probe, machine.stateDir)

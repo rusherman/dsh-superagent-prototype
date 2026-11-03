@@ -141,7 +141,7 @@ const TEXT = {
   actionAddAllowed: ['去添加', 'Add senders'],
   'problemSetupFix.github': ['在设置 › 来源的 GitHub 卡片修正后保存，会重新检查；在 dsh-superagent 之外修复的（例如登录 CLI），点“重新检查”。', 'Fix it on the GitHub card of the Source settings and save to check again; after a fix outside dsh-superagent, such as signing a CLI in, choose Check again.'],
   'problemSetupFix.feishu': ['在设置 › 来源的飞书卡片修正后保存，会重新检查；在 dsh-superagent 之外修复的（例如配置机器人），点“重新检查”。', 'Fix it on the Feishu card of the Source settings and save to check again; after a fix outside dsh-superagent, such as configuring the bot, choose Check again.'],
-  'problemSetupFix.execution': ['在设置 › 执行里修正本地项目后保存，会重新检查；在 dsh-superagent 之外修复的（例如初始化仓库），点“重新检查”。', 'Fix the local project in the Execution settings and save to check again; after a fix outside dsh-superagent, such as initializing the repository, choose Check again.'],
+  'problemSetupFix.execution': ['在设置 › 执行里修正本地仓库后保存，会重新检查；在 dsh-superagent 之外修复的（例如初始化仓库），点“重新检查”。', 'Fix the local repositories in the Execution settings and save to check again; after a fix outside dsh-superagent, such as initializing a repository, choose Check again.'],
   'problemSetupFix.deployment': ['在部署设置里修正后保存，会重新检查；在 dsh-superagent 之外修复的（例如升级 git），点“重新检查”。', 'Fix it in the Deployment settings and save to check again; after a fix outside dsh-superagent, such as upgrading git, choose Check again.'],
   problemSetupFeishu: ['飞书机器人检查未通过，飞书来源暂停', 'Feishu bot check failed; the Feishu Source is paused'],
   // Source
@@ -755,7 +755,7 @@ const TEXT = {
   'healthCode.sourceOff': ['已关闭', HEALTH_TEXT.sourceOff],
   'healthCode.feishuCliUnset': ['来源已打开，还没有设置机器人的 lark-cli', HEALTH_TEXT.feishuCliUnset],
   'healthCode.feishuBotMissing': ['等待飞书机器人', HEALTH_TEXT.feishuBotMissing],
-  'healthCode.githubUnset': ['来源已打开，还没有设置 GitHub 仓库；本安装只服务本地项目', HEALTH_TEXT.githubUnset],
+  'healthCode.githubUnset': ['来源已打开，还没有设置 GitHub 仓库；本安装只服务本地仓库', HEALTH_TEXT.githubUnset],
   'healthCode.pollFailures': ['连续 {count} 次轮询失败，最近一次：{error}', HEALTH_TEXT.pollFailures],
 } as const satisfies Record<string, readonly [string, string]>
 export type DshSuperagentKey = keyof typeof TEXT

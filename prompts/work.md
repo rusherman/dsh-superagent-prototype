@@ -33,10 +33,10 @@ Retrieve missing context using available tools; try feasible alternatives and bo
 Do not loop indefinitely, bypass safety or permissions, or claim success for an impossible ticket.
 Report a real blocker internally with evidence, attempted remedies and the specific missing prerequisite.
 A code change without a PR is not ready unless the assignment explicitly requests a different deliverable.
-Local repositories are the JSON array $DSH_SUPERAGENT_PROJECTS, each with name and path. A ticket is not bound to one repository: determine which one or several the request targets; if unclear, use human_action to ask rather than guessing.
-Work only in their ticket worktrees at $DSH_SUPERAGENT_DIR/<name>, never edit the configured source directories. Preparation may have created all worktrees; create a missing one from its configured path and committed HEAD on agent/$DSH_SUPERAGENT_NAME only when needed. A migrated single-repository prepare command may put its worktree at $DSH_SUPERAGENT_DIR itself.
-Never push or open a PR for local-repository changes, even when a GitHub repository is also configured. Unless the Delivery requirements name an author, commit as dsh-superagent <dsh-superagent@localhost>. ready delivers reviewed commits: list each changed repository's name, ticket branch and head commit in the report.
-When $DSH_SUPERAGENT_GITHUB_REPOSITORY is empty, local commits are the code deliverable and require no PR. Otherwise GitHub-repository work follows the normal PR workflow.
+Local repositories: $DSH_SUPERAGENT_PROJECTS is JSON [{name,path}]. Select one or several from the request; if unclear, use human_action to ask.
+Use $DSH_SUPERAGENT_DIR/<name> worktrees; never edit the configured source directories. Create missing worktrees from their committed HEAD on agent/$DSH_SUPERAGENT_NAME. Legacy single-repository worktrees may be at $DSH_SUPERAGENT_DIR.
+Never push or open a PR for local-repository changes, even with GitHub configured. Default local author: dsh-superagent <dsh-superagent@localhost>, unless Delivery requirements override. Report each changed repository's name, ticket branch and head commit.
+Without $DSH_SUPERAGENT_GITHUB_REPOSITORY, reviewed local commits need no PR; GitHub work still follows the PR workflow.
 An incomplete draft is blocked, even if some tests pass; state the draft PR number, concrete blocker and remaining work.
 Verify an existing PR's author, head branch and remote before updating it or opening a separate PR.
 Do not delete ticket directories or rewrite unrelated branches.

@@ -5,9 +5,9 @@ Use this guide to install, configure and operate dsh-superagent. It covers accou
 ## What runs
 
 - **A dedicated DeepSeek Harness profile**, called `superagent` in this guide. Create it from the Web profile template. It loads the bundle and serves its panel on `127.0.0.1`. Keep it separate from the profile you work in: the plugin changes process-wide `PATH` and git settings, and its process needs independent restarts and upgrades.
-- **A workspace:** a GitHub repository, a local project, or both.
+- **A workspace:** a GitHub repository, one or more local git repositories, or both.
   - **GitHub repository, with an agent GitHub account.** The agent comments, pushes branches and opens pull requests as this account, through a GitHub CLI signed in only as that account.
-  - **Local project.** An existing git repository on this machine, with no GitHub remote needed. Workers commit on a branch per Ticket and report it ready; nothing is pushed and no pull request is opened. See [Local project](#local-project).
+  - **Local repositories.** Existing git repositories on this machine, with no GitHub remote needed. A Ticket can change several repositories. Workers commit on a branch per Ticket in each changed repository and report it ready; nothing is pushed and no pull request is opened. See [Local repositories](#local-repositories).
 - **Optional:** a Feishu bot for chat requests.
 
 Plugin configuration holds the state directory and machine limits. Use the panel for everything else: Sources for the repository and accounts, Policy for allowed lists, and Execution for worker directories and commands.
@@ -155,25 +155,37 @@ Setup must succeed before polling or work starts. Overview lists missing require
    git -C /home/me/src/widgets worktree add -b "agent/$DSH_SUPERAGENT_NAME" "$DSH_SUPERAGENT_DIR" "refs/dsh-superagent/$DSH_SUPERAGENT_TICKET"
    ```
 
-   For a local project, the **Local project** field names its git repository, and the prepare command adds a worktree from it:
+   For local repositories, add rows under **Local repositories** with names such as `web` and `api` and each repository's absolute path. This prepare command creates all worktrees from their committed `HEAD`:
 
    ```sh
-   git -C "$DSH_SUPERAGENT_PROJECT" worktree add -b "agent/$DSH_SUPERAGENT_NAME" "$DSH_SUPERAGENT_DIR" HEAD
+   python3 - <<'PY'
+   import json, os, pathlib, subprocess
+   root = pathlib.Path(os.environ["DSH_SUPERAGENT_DIR"])
+   root.mkdir(parents=True, exist_ok=True)
+   for repo in json.loads(os.environ["DSH_SUPERAGENT_PROJECTS"]):
+       subprocess.run(["git", "-C", repo["path"], "worktree", "add",
+                       "-b", "agent/" + os.environ["DSH_SUPERAGENT_NAME"],
+                       str(root / repo["name"]), "HEAD"], check=True)
+   PY
    ```
 
    List personal CLIs, such as one signed in to your own account, as blocked commands.
 4. **Prompts.** Set the team sections: the GitHub disclosure line, review bots, the commit author and the auto-merge condition.
 
-### Local project
+### Local repositories
 
-To serve a git repository on this machine without GitHub, leave the GitHub card's repository and CLI empty and set **Local project** under Execution to the repository's absolute path. Setup checks that the path is inside a git repository and uses the repository's top level. Changing it runs setup again and restarts the application; only the panel can change it.
+To serve git repositories on this machine without GitHub, leave the GitHub card's repository and CLI empty and add **Local repositories** under Execution. Each row has a unique name and an absolute path. Names are 1-48 lowercase letters, digits, underscores or hyphens, starting with a letter; they become directory names, so slashes and traversal are not allowed. Setup checks every git repository, resolves its top-level path and rejects two entries resolving to the same directory. Failures name the affected entry. Changing the list runs setup again and restarts the application; only the panel can change it.
+
+The API configuration is `executor.projects`, for example `[{"name":"web","path":"/srv/web"},{"name":"api","path":"/srv/api"}]`. The preparation example above creates `<Ticket directory>/web` and `<Ticket directory>/api`. The worker chooses one or several repositories from the request and asks a human when the target is unclear; the Ticket has no fixed repository binding.
 
 - **Requests** come from Feishu, so configure the Feishu Source. The GitHub Source can stay on: it reports that no repository is set and polls nothing.
-- **Delivery.** A worker commits on its Ticket branch and reports `ready` with the branch and head commit; the Ticket completes without a pull request (see [003 Execution](003-execution.md)). Merge the branch yourself, for example `git -C <project> merge agent/<name>`, then remove its worktree.
-- **Worker environment.** Workers get `DSH_SUPERAGENT_PROJECT` with the project's path; `DSH_SUPERAGENT_GITHUB_*` variables are empty, the GitHub skill is not loaded, and the `gh` shim refuses to run. Git uses the project's own configuration, including its remotes, and commits as the author the Prompts name, otherwise `dsh-superagent <dsh-superagent@localhost>`.
-- **Assessment** reads files from the project's committed `HEAD`, not its working tree.
+- **Delivery.** A worker commits on its Ticket branch in each changed repository and reports `ready` with every repository's name, branch and head commit; the reply preserves these references. The Ticket completes without a pull request (see [003 Execution](003-execution.md)). Merge each branch yourself, for example `git -C <repository path> merge agent/<Ticket short name>`, then remove its worktree. Cross-repository changes are not atomic.
+- **Worker environment.** Workers get `DSH_SUPERAGENT_PROJECTS`, a JSON array with resolved `name` and `path` values. Without GitHub, `DSH_SUPERAGENT_GITHUB_*` variables are empty, the GitHub skill is not loaded, and the `gh` shim refuses to run. Git uses each repository's own configuration, including its remotes, and commits as the author the Prompts name, otherwise `dsh-superagent <dsh-superagent@localhost>`. The host checks named worktrees for local credential overrides after preparation.
+- **Assessment** reads each repository's committed `HEAD`, not its working tree. `orchestrator_eval_read` takes `project` with the configured repository name for `file` or `directory`; omission works only for one local repository or defaults to GitHub when GitHub is configured.
 
-With both a GitHub repository and a local project, GitHub works as before, and workers also get the project path.
+Existing databases migrate `executor.project: "/path"` to `executor.projects: [{"name":"project","path":"/path"}]` (schema 12), preserving saved revisions and prepare commands. `DSH_SUPERAGENT_PROJECT` remains the single repository's path for legacy prepare commands; it is empty with zero or several repositories. Replace an old single-repository prepare command before adding a second repository. Existing Ticket worktrees at the Ticket root remain usable.
+
+With both a GitHub repository and local repositories, GitHub works as before and workers also get the local list. Local-repository changes still stay local. Preparation must create the required checkouts; an empty prepare command starts with an empty Ticket directory. If preparation fails partway, keep the recorded error and inspect existing branches/worktrees before retrying; no repository is rolled back automatically. Worktree cleanup and merges are manual, and prompt-level no-push instructions are not an OS security boundary.
 
 ### Management API
 
@@ -221,9 +233,9 @@ The blocks:
 - `source:github`, `source:feishu`: `{"enabled": true, "config": {…}}`. GitHub's config has `repository` and `cli`, and the switches `observeIssues`, `observePulls`, `observeComments` and `observeCi`, off by default, which receive every new Issue, new pull request and comment in the repository and the default branch's CI; Feishu's has `cli`, `chats` as `[{"chatId": "oc_…", "name": "…", "listen": "mentions"}]` (or `"all"`), `directMessages`, and `otherChats` as `"none"` or `"mentions"`.
 - `policy`: `{"rules": […], "sources": {"github": {"allowed": [{"id": "<login>"}], "bots": [{"id": "dependabot[bot]"}]}, "feishu": {"allowed": [{"id": "ou_…", "name": "…"}], "syncChat": "oc_…", "admission": {"oc_…": {"unlistedAddressed": "explicit"}}}}}`. `bots` lists the bots whose messages may become inferred candidates. An `admission` row is keyed by chat id, `other` or `direct` for Feishu, and by `issues`, `pulls`, `comments` or `ci` for GitHub; an unset cell takes its default (see [002 Authorization](002-authorization.md)).
 - `eval`: `mode`, `timeoutSeconds` and `model`.
-- `executor`: `model`, `maxWorkers`, `project` (the local project's absolute path, or empty), `directory`, `prepare` and `blockedCommands`. The processing pause is a setting of its own, `paused`, which `POST executor/pause` sets.
+- `executor`: `model`, `maxWorkers`, `projects` (array of `{"name":"web","path":"/absolute/web"}`; empty for no local repositories), `directory`, `prepare` and `blockedCommands`. The old `project` field is migrated only from stored settings, not accepted on new API saves. The processing pause is a setting of its own, `paused`, which `POST executor/pause` sets.
 
-Changing a repository, the local project or a CLI runs the corresponding setup check first. A failed check returns 400 with details in `setup`. A successful account change, or any save while setup is pending, returns `restarting: true`. The API is temporarily unavailable while the application restarts.
+Changing repositories or a CLI runs the corresponding setup check first. A failed check returns 400 with details in `setup`. A successful account change, or any save while setup is pending, returns `restarting: true`. The API is temporarily unavailable while the application restarts.
 
 ```sh
 api=http://127.0.0.1:3082/orchestrator/api
@@ -236,7 +248,7 @@ curl -s -X PUT -H 'x-orchestrator-request: 1' -H 'content-type: application/json
 
 Setup uses the DeepSeek Harness subprocess service, as worker shells do. It removes environment variables whose names contain KEY, PASSWORD, SECRET or TOKEN.
 
-Setup verifies the GitHub repository and the agent's push access, or that the local project is a git repository, writes the worker environment, and checks that git reads the configuration it writes: only the agent credentials for github.com, or, for a local project only, its commit identity rule. A Feishu setup failure disables only the Feishu Source.
+Setup verifies the GitHub repository and the agent's push access when configured, validates each named local git repository, writes the worker environment, and checks that git reads the configuration it writes: only the agent credentials for github.com, or, for local repositories alone, its commit identity rule. A Feishu setup failure disables only the Feishu Source.
 
 The process environment that setup writes:
 
@@ -274,10 +286,11 @@ Setup problems appear on the overview with a link to the fix, in the panel's lan
 | `The agent GitHub CLI was not found.` | Set the wrapper's absolute path, or a command name on `PATH` |
 | `The agent GitHub CLI cannot read its account` | Sign the wrapper in with `auth login` |
 | `@… cannot read …` or `@… cannot push to …` | Give the agent account write access to the repository |
-| `The GitHub Source names no repository.` | Set the repository, `owner/name`, on the GitHub card, or clear both GitHub fields to serve only a local project |
-| `Name a GitHub repository on the GitHub Source, or a local project in the Execution settings.` | Set one of them |
-| `The local project … is not a git repository.` | Set **Local project** to an absolute path inside a git repository, or run `git init` there |
-| The GitHub Source shows `no GitHub repository is set` | The installation serves only its local project; turn the Source off, or set a repository |
+| `The GitHub Source names no repository.` | Set the repository, `owner/name`, on the GitHub card, or clear both GitHub fields to serve only local repositories |
+| `Name a GitHub repository on the GitHub Source, or local repositories in the Execution settings.` | Set one of them |
+| `Local repository … is not a git repository.` | Fix that row's absolute path under **Local repositories**, or run `git init` there |
+| `Local repository … resolves to the same repository as …` | Remove the duplicate row or point it at another repository |
+| The GitHub Source shows `no GitHub repository is set` | The installation serves only local repositories; turn the Source off, or set a repository |
 | A Ticket fails with `The prepare command failed: …` | The output names the cause, such as a wrong clone path; fix the command, then retry the Ticket |
 | `git does not read the configuration dsh-superagent writes for workers` | Install git 2.32 or later |
 | A Ticket fails with `The git configuration of the repository in … sets …` | Remove the named credential or `http.*.extraheader` settings from the clone's `.git/config` |

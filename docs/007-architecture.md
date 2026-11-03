@@ -36,7 +36,7 @@ Shutdown cancels turns, waits for passes, effects and agents, restores the proce
 
 | Part | Module | Does |
 | --- | --- | --- |
-| Setup | `src/app/setup.ts` | Resolves the workspace (a GitHub repository, a local project or both) and the accounts by probing their CLIs the way worker shells run them, writes and applies the workers' environment and command shims, and keeps the setup problems; Settings checks a changed account through it, and restarts through it, which runs setup again |
+| Setup | `src/app/setup.ts` | Resolves the workspace (a GitHub repository, named local git repositories or both) and the accounts by probing their CLIs the way worker shells run them, writes and applies the workers' environment and command shims, and keeps the setup problems; Settings checks a changed account through it, and restarts through it, which runs setup again |
 | Passes | `src/app/passes.ts` | One pass at a time, every two seconds and whenever a command asks: the due effects, then `Engine.evaluateDue`; a Source's Trigger reaches the Engine through it |
 | Outbox | `src/app/outbox.ts` | The Engine's `Outbox` port, and the only writer of the receipts: `send` keeps a message's receipt and queues its `reply` effect in one transaction, and the effect's handler sends it through `SourceRegistry.send`; a message waits while its Source is off, and is dropped when the conversation is gone or not listened to |
 | Notices | `src/app/notices.ts` | Converts domain events and worker activity into main-Session messages. `eventNotice` handles domain notices; `reportRelay` forwards questions immediately, keeps ordinary progress on its Ticket, and relays other reports; `followupRelay` names the Tickets that own a human follow-up. Relays arriving during a turn are delivered together at its next step through the DeepSeek Harness inbox |
@@ -159,7 +159,7 @@ Its interfaces are grouped by purpose:
 - **Outbox receipts:** `replyStatus` and `receipts`, written only by Outbox. Receipt operations are `get`, `waiting`, `behind`, `add`, `settle` and `withdraw`. `behind` checks whether an earlier message for the same Ticket and conversation is waiting with fewer than three failures. A withdrawn message settles with `channelGone` or `channelIgnored`. Read queries expose failed and dropped replies through `failingReplies`, `droppedReplies` and `droppedSince`.
 - **Typed key-value records:** `get`, `set`, `delete` and `keys`, using entries from `KV`.
 
-`afterCommit` runs an action only after the transaction commits, never after rollback. Runtime reads records in their stored shape; the schema 11 migration converts older supported records at startup.
+`afterCommit` runs an action only after the transaction commits, never after rollback. Runtime reads records in their stored shape; schema 10 records pass through the schema 11 migration, then schema 12 converts single-project settings into named repository lists at startup.
 
 ### Effects
 
@@ -281,9 +281,11 @@ Some generic modules still refer directly to GitHub or Feishu:
 - `src/app/resources.ts` reads the `feishu/` and `github/` originals; `src/app/cards.ts` uses `pullOf` for Ticket cards.
 - Runtime sends `pullEndNotices` for merged or closed Tickets, only with a GitHub repository.
 - Executor tools bind reported pull requests with `readPull` and `claimPull`, using the GitHub context exposed by Runtime.
-- MasterAssessor reads repository files with `readRepositoryPath`, or with `readProjectPath` from the local project's `HEAD` when there is no GitHub repository.
+- MasterAssessor reads GitHub files with `readRepositoryPath`, or local committed `HEAD` files with `readProjectPath`. `orchestrator_eval_read.project` selects a configured local name; with multiple local repositories and no GitHub it is required. Pagination cache keys include the name so identical paths in different repositories cannot share snapshots.
 - Sessions and Prompts register built-in skills only for GitHub and Feishu; Prompts leaves out the GitHub skill without a GitHub repository. Migration converts their schema-10 records.
-- Setup probes only GitHub and Feishu account fields (`SETUP_FIELDS`), and the Execution settings' local project. Only those Sources receive account setup problems through `SourceContext.problem`.
+- Setup probes only GitHub and Feishu account fields (`SETUP_FIELDS`), and every entry of `executor.projects`. It resolves canonical repository roots and rejects duplicate names or root directories. Only those Sources receive account setup problems through `SourceContext.problem`.
+
+Tickets are not bound to a local repository. `DSH_SUPERAGENT_PROJECTS` exposes all names and canonical paths as JSON; the multi-repository prepare example creates a worktree under each name in the Ticket directory. Workers choose the requested subset or ask for clarification, never modify the source directories, and report each changed repository's branch and head commit. The legacy `DSH_SUPERAGENT_PROJECT` is populated only for one local repository. GitHub PR behavior stays separate; local changes are not pushed. Preparation checks each named worktree's local git credential settings as well as the Ticket root.
 
 
 ## Modules
@@ -291,7 +293,8 @@ Some generic modules still refer directly to GitHub or Feishu:
 | Path | Responsibility |
 | --- | --- |
 | `src/index.ts` | The main plugin entry: reads the machine settings, starts the Runtime, and gives it the restart that a save of a Source's account uses |
-| `src/deployment.ts` | The plugin `Config` and `Machine`; `resolveDeployment` and `resolveFeishuBot` read the repository and the accounts from the Source settings, and the local project from the Execution settings, each CLI run as Executor shells run it; `Deployment.github` is absent for a local project alone, and `githubOf` fails where GitHub is required; `SETUP_FIELDS` lists the Source fields setup reads. The code names no person, account or organization |
+| `src/deployment.ts` | The plugin `Config` and `Machine`; `resolveDeployment`, `resolveProjects` and `resolveFeishuBot` read the repository and accounts from Source settings and local repositories from Execution settings; each CLI runs as Executor shells run it. `Deployment.projects` holds canonical named paths; `Deployment.github` is absent without GitHub, and `githubOf` fails where GitHub is required; `SETUP_FIELDS` lists the Source fields setup reads |
+| `src/projects.ts` | Local repository entry and list schemas, shared by settings and deployment without importing their runtime dependencies |
 | `src/setup.ts` | Setup problems: `SetupError`, with a code, the place that fixes it and the English text the log, the main Session and the panel share |
 | `src/policy.ts` | The Policy: the settings schemas by block, the Policy version, the gate and Mandate revalidation |
 | `src/admission.ts` | The admission table's values, each cell's options and defaults, shared with the panel |
@@ -320,7 +323,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/app/notices.ts` | The main Session's notices and relays: `eventNotice`, `reportRelay`, `resultRelay` and `followupRelay` |
 | `src/app/store.ts` | The Store, and `Receipt`, a message of the outbox |
 | `src/app/store-read.ts` | `storeReads`: the Store's read queries for the views, the tools and the Sources' polls, which never write |
-| `src/app/migration.ts` | The schema 11 migration: one step from schema 10 that writes every stored record in its current shape |
+| `src/app/migration.ts` | Schema 10 to 11 record migration, followed by schema 12 single-project-to-projects settings migration, including historical revisions |
 | `src/app/effects.ts` | Effects |
 | `src/app/versions.ts` | `Versions`: a record kept as numbered snapshots with a pointer to the current one, for the settings and the prompts |
 | `src/app/cache.ts` | `TextCache`: texts kept in memory within a size, the least recently used dropped first |
@@ -430,7 +433,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/settings.spec.ts` | Settings saves that race a model or account check, a Policy sync that a save outran, and the refusals of the pause, a sync and a block |
 | `tests/views.spec.ts` | What the management views derive from the Store, such as the Thread a dropped message belongs to |
 | `tests/timeline.spec.ts` | A Thread's pages and a Trigger's neighbours by time and then id, with every received Trigger's time in one form |
-| `tests/migration.spec.ts` | The schema 11 migration: every stored record in its current shape, and the refusal of older schemas |
+| `tests/migration.spec.ts` | Schema 11 record migration and schema 12 local repository settings/history migration; refusal and rollback for unsupported or corrupt schemas |
 | `tests/store.spec.ts` | Repositories and their working sets, in SQLite as in memory, the kv area, with every key of `KV` spelled only in `src/kv.ts` and the migration, settings history and queries |
 | `tests/prompts.spec.ts` | Prompt validation, assembly and versions |
 | `tests/cards.spec.ts` | The rules the built-in text must state, file by file |

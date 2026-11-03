@@ -11,8 +11,8 @@ export const EXECUTOR_VARIABLES: readonly (VariableSpec & { ticket?: true })[] =
   { key: 'DSH_SUPERAGENT_DIR', ticket: true, description: { zh: '这个工单的执行目录；执行器 Session 在其中工作', en: 'This ticket\'s directory; the executor Session works in it' } },
   { key: 'DSH_SUPERAGENT_NAME', ticket: true, description: { zh: '工单的短名，也是执行目录的名字', en: 'The ticket\'s short name, also its directory\'s name' } },
   { key: 'DSH_SUPERAGENT_TICKET', ticket: true, description: { zh: '工单 id', en: 'The ticket id' } },
-  { key: 'DSH_SUPERAGENT_PROJECTS', description: { zh: '本地仓库列表的 JSON 数组，每项为 name 和 path（git 顶层绝对路径）；prepare 可在工单目录的同名子目录创建各仓库 worktree', en: 'JSON array of local repositories, each with name and path (absolute git top level); prepare can create each worktree in the ticket directory under its name' } },
-  { key: 'DSH_SUPERAGENT_PROJECT', description: { zh: '兼容旧准备命令：仅配置一个本地仓库时为其路径，否则为空；新命令使用 DSH_SUPERAGENT_PROJECTS', en: 'Legacy prepare compatibility: the path only when exactly one local repository is configured, otherwise empty; new commands use DSH_SUPERAGENT_PROJECTS' } },
+  { key: 'DSH_SUPERAGENT_PROJECTS', description: { zh: '本地仓库列表的 JSON 数组，每项为 name 和 path（git 顶层绝对路径）；prepare 可在工单目录的同名子目录创建各仓库 worktree', en: 'Local repositories as JSON [{name,path}]; path is the absolute git root, name is the ticket worktree subdirectory' } },
+  { key: 'DSH_SUPERAGENT_PROJECT', description: { zh: '兼容旧准备命令：仅配置一个本地仓库时为其路径，否则为空；新命令使用 DSH_SUPERAGENT_PROJECTS', en: 'Legacy single-repository path; empty for zero or several repositories. Prefer DSH_SUPERAGENT_PROJECTS' } },
   { key: 'DSH_SUPERAGENT_BLOCKED_COMMANDS', description: { zh: '这个执行环境禁止调用的命令，以空格分隔；不要运行它们', en: 'Commands blocked in this execution environment, separated by spaces; never run them' } },
 ]
 export interface Variable { key: string; value: string; description: Localized; owner: string }
