@@ -81,7 +81,7 @@ export function executorTools(host: ExecutorToolsHost, ticket: Ticket): Tool[] {
         question_for_trigger_id: z.string().optional().describe('With human_action: the human message that raised the question, which is asked where that person wrote.'),
         pr_number: z.number().int().positive().nullish().describe(host.github.deployment.github
           ? `The ticket's PR: its source PR, or one by ${host.github.deployment.github.login} from a branch named after this ticket (DSH_SUPERAGENT_NAME).`
-          : 'Always omit: this installation has no GitHub repository, so its work is delivered as commits in the local project.'),
+          : 'Always omit: this installation has no GitHub repository. Deliver local commits and name each changed repository, branch and head commit in summary.'),
         reply_to_trigger_id: z.string().optional().describe('The explicit human question this report answers; never for ordinary progress.'),
       }).strict(),
       execute: async (args, signal) => {

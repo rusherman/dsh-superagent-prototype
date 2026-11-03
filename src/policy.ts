@@ -9,6 +9,7 @@ import { key, type AssessmentOutcome, type Mandate, type Policy, type PolicyEffe
   type Trigger, type ActorRef, type GateResult } from './core/index.ts'
 import { sameName } from './infra/text.ts'
 import { WORKER_COMMANDS } from './infra/environment.ts'
+import { LocalProjectsSchema } from './projects.ts'
 
 export const RuleIdSchema = z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/)
 export const RuleMatchSchema = z.object({ rule_id: RuleIdSchema, reason: z.string().trim().min(1).max(500) }).strict()
@@ -87,18 +88,6 @@ export const EvalConfigSchema = z.object({
 }).strict()
 const CommandNameSchema = z.string().regex(/^[A-Za-z0-9._-]+$/).refine(name => name !== '.' && name !== '..', 'Not a command name')
   .refine(name => !WORKER_COMMANDS.includes(name), `${WORKER_COMMANDS.join(', ')} cannot be blocked`)
-export const LocalProjectSchema = z.object({
-  name: z.string().trim().regex(/^[a-z][a-z0-9_-]{0,47}$/, 'Use 1-48 lowercase letters, digits, underscores or hyphens, starting with a letter'),
-  path: z.string().trim().startsWith('/', 'An absolute path is required'),
-}).strict()
-export type LocalProject = z.infer<typeof LocalProjectSchema>
-export const LocalProjectsSchema = z.array(LocalProjectSchema).superRefine((projects, ctx) => {
-  const names = new Set<string>()
-  for (const [index, project] of projects.entries()) {
-    if (names.has(project.name)) ctx.addIssue({ code: 'custom', path: [index, 'name'], message: `Duplicate repository name: ${project.name}` })
-    names.add(project.name)
-  }
-})
 /** Executor settings: worker model, concurrency, named local git repositories, ticket directory root, prepare command, and blocked commands. */
 export const ExecutorConfigSchema = z.object({
   model: RoleModelSchema.nullable().default(null),

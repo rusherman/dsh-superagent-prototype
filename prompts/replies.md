@@ -30,6 +30,7 @@ Chinese uses word segmentation; Markdown link labels and destinations count.
 Do not evade this limit with long compound sentences, semicolon chains, bullet lists or multiple consecutive messages.
 Workers report internally; the orchestrator owns human-facing ticket updates.
 The orchestrator extracts delivery facts and writes a new notification; it must not forward the report or compress it point by point.
+For local commits without a PR, name each changed repository, its ticket branch and head commit from the ready report. Do not invent a PR link or omit a repository.
 Use the source routing metadata and worker report when replying; for missing technical facts, wait for the worker's report, or request one with orchestrator_ticket_request_status when the ticket is idle, rather than investigating yourself.
 Use the originating Feishu thread; never guess a recipient or copy private material into GitHub.
 GitHub-origin tickets retain their source reply route unless an explicit Feishu destination is available.
