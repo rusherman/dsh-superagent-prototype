@@ -17,7 +17,7 @@ import type { SettingsVersion, Store } from './store.ts'
 import { Versions } from './versions.ts'
 import { KV, type Key } from '../kv.ts'
 
-export const SCHEMA_VERSION = 11
+export const SCHEMA_VERSION = 12
 /** The oldest database schema version this build can open and migrate directly. */
 export const OLDEST_SCHEMA = 10
 /** Returns an error message explaining why `version` cannot be opened: older schemas need a new state directory. */
@@ -197,6 +197,10 @@ function migrateSettingsRecords(store: Store): void {
     store.set(name, { ...version, source: ORIGINS[version.source] ?? version.source, ...settings.success ? { settings: settings.data } : {} })
   }
 }
+/** Schema 12 replaces the single local path with a named list; the old prepare command keeps its legacy variable. */
+export function migrateTo12(store: Store): void {
+  step('the settings', () => { migrateSettingsRecords(store) })
+}
 interface Member { name?: string; feishuId?: string; github?: string }
 /**
  * Convert legacy flat settings (chat lists in Policy, top-level pause flag) or pre-schema-11 domain settings into current domain blocks:
@@ -223,7 +227,8 @@ export function migrateSettings(value: unknown): unknown {
 function withoutRemovedFields(value: Stored): Stored {
   const { executor, policy, sources, ...rest } = value as { executor?: Stored; policy?: Stored; sources?: Record<string, Stored> }
   // `paused` is now a top-level setting rather than a field on `executor`.
-  const { reviewer: _reviewer, visualReviewer: _visualReviewer, branchPrefix: _branchPrefix, paused, ...kept } = executor ?? {}
+  const { reviewer: _reviewer, visualReviewer: _visualReviewer, branchPrefix: _branchPrefix, paused, project, ...kept } = executor ?? {}
+  if (typeof project === 'string' && kept.projects === undefined) kept.projects = project.trim() ? [{ name: 'project', path: project.trim() }] : []
   const { members, memberChat, autoMergeLineLimit: _limit, rules: storedRules, ...policyRest } = policy ?? {}
   const rules = Array.isArray(storedRules) ? storedRules.map((rule: unknown) => { if (!isObject(rule)) return rule; const { visual: _visual, ...fields } = rule; return fields })
     : storedRules

@@ -20,6 +20,6 @@ export const testDeployment = (overrides: Partial<Deployment> = {}): Deployment 
 }) as Deployment & { github: GithubAccount }
 /** A deployment that serves only a local project, without GitHub. */
 export const localDeployment = (overrides: Partial<Deployment> = {}): Deployment => {
-  const { github: _, ...rest } = testDeployment({ project: '/srv/widgets', ...overrides })
+  const { github: _, ...rest } = testDeployment({ projects: [{ name: 'widgets', path: '/srv/widgets' }], ...overrides })
   return { ...rest, ...overrides.github ? { github: overrides.github } : {} }
 }

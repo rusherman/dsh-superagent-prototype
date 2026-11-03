@@ -45,6 +45,28 @@ it('refuses a database older than schema 10 and asks for a new state directory',
   expect(() => new Store(path)).toThrow(/schema 9 predates schema 10, which this version cannot migrate; start with a new state directory/)
 })
 
+it('migrates schema 11 single-project settings and their history, retaining prepare and revisions', () => {
+  const path = join(directory, 'local.sqlite')
+  const initial = new Store(path)
+  const { projects: _, ...executor } = initial.settings().executor
+  const settings = { ...initial.settings(), executor: { ...executor, project: '/srv/old repo', prepare: 'echo "$DSH_SUPERAGENT_PROJECT"' } }
+  initial.close()
+  const db = new DatabaseSync(path)
+  const set = (key: string, value: unknown) => db.prepare('INSERT OR REPLACE INTO kv VALUES (?,?)').run(key, JSON.stringify(value))
+  set('schema', 11)
+  set('settings-revision', 1)
+  set('settings-version:1', { revision: 1, previousRevision: 0, settings, source: 'panel', block: 'executor' })
+  db.close()
+  const store = new Store(path)
+  expect(store.get('schema')).toBe(12)
+  expect(store.settings().executor).toMatchObject({ projects: [{ name: 'project', path: '/srv/old repo' }], prepare: settings.executor.prepare })
+  expect(store.get('settings-revision')).toBe(1)
+  store.close()
+  const again = new Store(path)
+  expect(again.settings().executor.projects).toEqual([{ name: 'project', path: '/srv/old repo' }])
+  again.close()
+})
+
 it('writes a schema 10 database in its current shape once, so nothing reads an older shape', () => {
   const path = join(directory, 'db.sqlite')
   const ticket = {
@@ -202,7 +224,7 @@ it('changes nothing when one step fails: the database stays at schema 10 as it w
     updatedAt: '2', mandate: mandate({ via: 'listed' }), meta: { sourceTriggerId: 'trig-1', workspace: '/w/fix-1' } }
   // The current settings must validate; an invalid value aborts the migration transaction.
   schema10(path, { settings: { executor: { maxWorkers: 'many' } } }, { ticket: [ticket] })
-  expect(() => new Store(path)).toThrow(/^The orchestrator database is unchanged at schema 10: its migration to schema 11 failed: the settings: /)
+  expect(() => new Store(path)).toThrow(/^The orchestrator database is unchanged at schema 10: its migration to schema 12 failed: the settings: /)
   const db = new DatabaseSync(path)
   expect(db.prepare("SELECT value FROM kv WHERE key='schema'").get()).toEqual({ value: '10' })
   expect(JSON.parse(String(db.prepare("SELECT value FROM ticket WHERE id='t1'").get()!.value))).toMatchObject({ meta: { workspace: '/w/fix-1' } })
@@ -475,7 +497,7 @@ it('names the ticket it stopped at when a ticket does not read, and leaves the d
   const path = join(directory, 'db.sqlite')
   const { inputs: _inputs, ...broken } = ticket10('t9')
   schema10(path, {}, { ticket: [broken] })
-  expect(() => new Store(path)).toThrow(/^The orchestrator database is unchanged at schema 10: its migration to schema 11 failed: ticket t9: /)
+  expect(() => new Store(path)).toThrow(/^The orchestrator database is unchanged at schema 10: its migration to schema 12 failed: ticket t9: /)
   const db = new DatabaseSync(path)
   expect(db.prepare("SELECT value FROM kv WHERE key='schema'").get()).toEqual({ value: '10' })
   expect(JSON.parse(String(db.prepare("SELECT value FROM ticket WHERE id='t9'").get()!.value))).toEqual(broken)

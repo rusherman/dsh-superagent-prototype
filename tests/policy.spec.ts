@@ -230,6 +230,19 @@ describe('revalidate and version', () => {
   })
 })
 describe('settings migration', () => {
+  it('migrates the single local path without changing its prepare command and validates named lists', () => {
+    const prepare = 'git -C "$DSH_SUPERAGENT_PROJECT" worktree add "$DSH_SUPERAGENT_DIR"'
+    const saved = SettingsSchema.parse(migrateSettings({ executor: { project: '/srv/old repo', prepare } }))
+    expect(saved.executor).toMatchObject({ projects: [{ name: 'project', path: '/srv/old repo' }], prepare })
+    expect(SettingsSchema.parse(migrateSettings(saved))).toEqual(saved)
+    expect(SettingsSchema.parse(migrateSettings({ executor: { project: '' } })).executor.projects).toEqual([])
+    for (const name of ['../escape', 'a/b', '.', '', 'Upper', '-bad']) {
+      expect(() => SettingsSchema.parse({ executor: { projects: [{ name, path: '/srv/repo' }] } })).toThrow()
+    }
+    expect(() => SettingsSchema.parse({ executor: { projects: [{ name: 'app', path: 'relative' }] } })).toThrow()
+    expect(() => SettingsSchema.parse({ executor: { projects: [{ name: 'app', path: '/one' }, { name: 'app', path: '/two' }] } }))
+      .toThrow('Duplicate repository name: app')
+  })
   it('moves each member\'s identity into each Source\'s part of the Policy and drops the fields prompts and the execution environment replaced', () => {
     const saved = SettingsSchema.parse(migrateSettings({
       policy: { members: [{ name: 'Alice', feishuId: MEMBER, github: 'alice' }, { name: 'Bob', feishuId: 'ou_bob', github: '' }, { name: 'Carol', feishuId: '', github: 'carol' }], memberChat: CHAT, autoMergeLineLimit: 300,
@@ -254,7 +267,7 @@ describe('settings migration', () => {
       sources: { feishu: feishuSource({ chats: [{ chatId: CHAT, listen: 'mentions' }, { chatId: OBSERVED, listen: 'all' }], directMessages: false }), github: { enabled: true, config: { pollSeconds: 120 } } },
       policy: { rules: [], sources: { feishu: { allowed: [{ id: MEMBER, name: 'A' }], admission: {} }, github: { allowed: [{ id: 'a' }], admission: {} } } },
       eval: { mode: 'auto', timeoutSeconds: 90, model: { provider: 'p', model: 'm' } },
-      executor: { model: null, maxWorkers: 5, project: '', directory: '', prepare: '', blockedCommands: [] },
+      executor: { model: null, maxWorkers: 5, projects: [], directory: '', prepare: '', blockedCommands: [] },
     })
     expect(migrateSettings(migrated)).toEqual(migrated)
   })

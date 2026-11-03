@@ -99,7 +99,7 @@ function seed(store: Store, accounts: Accounts = {}): void {
   const settings = store.settings()
   const { feishu: _feishu, ...others } = settings.sources
   const feishu = accounts.feishu === null ? undefined : { ...settings.sources.feishu?.config, cli: BOT(), ...accounts.feishu }
-  store.saveSettings(SettingsSchema.parse({ ...settings, executor: { ...settings.executor, project: accounts.project ?? '' }, sources: { ...others, github: { enabled: true, config: { repository: 'acme/widgets', cli: AGENT(), ...accounts.github } }, ...feishu ? { feishu: { enabled: true, config: feishu } } : {} } }))
+  store.saveSettings(SettingsSchema.parse({ ...settings, executor: { ...settings.executor, projects: accounts.project ? [{ name: 'widgets', path: accounts.project }] : [] }, sources: { ...others, github: { enabled: true, config: { repository: 'acme/widgets', cli: AGENT(), ...accounts.github } }, ...feishu ? { feishu: { enabled: true, config: feishu } } : {} } }))
 }
 let restarts: ReturnType<typeof vi.fn<() => void>>
 async function restart(machine: Partial<Machine> = {}, accounts: Accounts = {}): Promise<Runtime> {
@@ -902,9 +902,9 @@ it('serves a local project without GitHub: setup passes, the GitHub Source polls
   await next.ready
   expect(next.setupProblem).toBeUndefined()
   expect(next.configured()).toBe(true)
-  expect(next.deployment).toMatchObject({ project: PROJECT })
+  expect(next.deployment).toMatchObject({ projects: [{ name: 'widgets', path: PROJECT }] })
   expect(next.deployment.github).toBeUndefined()
-  expect((await api('GET', 'state')).body).toMatchObject({ setup: { accounts: { repository: null, agent: null, project: PROJECT } } })
+  expect((await api('GET', 'state')).body).toMatchObject({ setup: { accounts: { repository: null, agent: null, projects: [{ name: 'widgets', path: PROJECT }] } } })
   expect(next.prompts.skills(next.prompts.current().config).map(([name]) => name)).not.toContain('github')
   expect(next.prompts.compose(next.prompts.current().config, 'worker')).toMatch(/DSH_SUPERAGENT_PROJECT\W+\/srv\/widgets/)
   // Neither a GitHub repository nor a local project: setup says where to name one.
@@ -920,7 +920,7 @@ it('serves a local project without GitHub: setup passes, the GitHub Source polls
 
 it('checks a changed local project before saving it, restarts after the save, and lets only the panel change it', async () => {
   const save = (project: string, origin: SettingsOrigin = 'panel') =>
-    runtime.settings.save('executor', { ...runtime.store.settings().executor, project }, runtime.store.blockRevision('executor'), origin)
+    runtime.settings.save('executor', { ...runtime.store.settings().executor, projects: [{ name: 'widgets', path: project }] }, runtime.store.blockRevision('executor'), origin)
   await expect(save('/srv/widgets', 'tool')).rejects.toThrow('can only be changed in the management panel')
   answers['git -C /srv/plain rev-parse --show-toplevel'] = new Error('fatal: not a git repository')
   await expect(save('/srv/plain')).rejects.toMatchObject({ code: 'projectInvalid' })

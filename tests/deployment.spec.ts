@@ -61,7 +61,7 @@ describe('setup', () => {
     const deployment = await resolveDeployment(machine(), { github: { repository: 'acme/widgets', cli: 'gh' } }, probe, path)
     expect(deployment.github).toEqual({ repository: 'acme/widgets', cli: join(dir, 'bin', 'gh'), login: 'Agent-Bot', noreply: '7+Agent-Bot@users.noreply.github.com' })
     expect(deployment).not.toHaveProperty('feishu')
-    expect(deployment).not.toHaveProperty('project')
+    expect(deployment.projects).toEqual([])
     // A renamed repository is still resolved by its old name; notifications carry GitHub's current full_name.
     expect((await resolveDeployment(machine(), { github: { repository: 'acme/gadgets', cli: 'gh' } }, probe, path)).github?.repository).toBe('acme/widgets')
   })
@@ -70,23 +70,29 @@ describe('setup', () => {
     mkdirSync(join(project, 'src'), { recursive: true })
     await exec('git', ['init', '-q', project], { env: gitEnv() })
     const top = (await exec('git', ['-C', project, 'rev-parse', '--show-toplevel'], { env: gitEnv() })).stdout.trim()
-    const local = await resolveDeployment(machine(), { project: join(project, 'src') }, probe, path)
-    expect(local.project).toBe(top)
+    const local = await resolveDeployment(machine(), { projects: [{ name: 'app', path: join(project, 'src') }] }, probe, path)
+    expect(local.projects).toEqual([{ name: 'app', path: top }])
     expect(local).not.toHaveProperty('github')
-    const both = await resolveDeployment(machine(), { github: { repository: 'acme/widgets', cli: 'gh' }, project }, probe, path)
-    expect(both).toMatchObject({ project: top, github: { repository: 'acme/widgets' } })
+    const projects = [{ name: 'app', path: project }]
+    const both = await resolveDeployment(machine(), { github: { repository: 'acme/widgets', cli: 'gh' }, projects }, probe, path)
+    expect(both).toMatchObject({ projects: [{ name: 'app', path: top }], github: { repository: 'acme/widgets' } })
     await expect(resolveDeployment(machine(), {}, probe, path)).rejects.toEqual(setupError('github', 'workspaceUnset'))
-    await expect(resolveDeployment(machine(), { github: { repository: '', cli: '' }, project: '' }, probe, path)).rejects.toEqual(setupError('github', 'workspaceUnset'))
+    await expect(resolveDeployment(machine(), { github: { repository: '', cli: '' }, projects: [] }, probe, path)).rejects.toEqual(setupError('github', 'workspaceUnset'))
     const plain = join(dir, 'plain')
     mkdirSync(plain, { recursive: true })
-    await expect(resolveDeployment(machine(), { project: plain }, probe, path)).rejects.toEqual(setupError('execution', 'projectInvalid', { project: plain }))
-    await expect(resolveDeployment(machine(), { project: 'relative' }, probe, path)).rejects.toEqual(setupError('execution', 'projectInvalid', { project: 'relative' }))
+    await expect(resolveDeployment(machine(), { projects: [{ name: 'plain', path: plain }] }, probe, path)).rejects.toEqual(setupError('execution', 'projectInvalid', { name: 'plain', project: plain }))
+    await expect(resolveDeployment(machine(), { projects: [{ name: 'app', path: 'relative' }] }, probe, path)).rejects.toThrow('absolute path')
     // The host's git environment does not reach the check: DSH strips GIT_CONFIG_KEY_n from child processes and leaves
     // GIT_CONFIG_COUNT, and a GIT_DIR names another repository.
     const hostGit: Probe = async argv => (await exec(argv[0]!, argv.slice(1), { env: { PATH: path, HOME: dir, GIT_CONFIG_COUNT: '1', GIT_DIR: plain } })).stdout
-    expect((await resolveDeployment(machine(), { project }, hostGit, path)).project).toBe(top)
+    expect((await resolveDeployment(machine(), { projects }, hostGit, path)).projects).toEqual([{ name: 'app', path: top }])
+    const two = [{ name: 'app', path: project }, { name: 'widgets', path: join(dir, 'widgets') }]
+    expect((await resolveDeployment(machine(), { projects: two }, probe, path)).projects).toHaveLength(2)
+    await expect(resolveDeployment(machine(), { projects: [...projects, { name: 'alias', path: join(project, 'src') }] }, probe, path))
+      .rejects.toEqual(setupError('execution', 'projectDuplicate', { name: 'alias', other: 'app' }))
+    await expect(resolveDeployment(machine(), { projects: [projects[0]!, projects[0]!] }, probe, path)).rejects.toThrow('Duplicate repository name')
     // A partial GitHub configuration is still an error, even with a local project.
-    await expect(resolveDeployment(machine(), { github: { cli: 'gh' }, project }, probe, path)).rejects.toEqual(setupError('github', 'repositoryUnset'))
+    await expect(resolveDeployment(machine(), { github: { cli: 'gh' }, projects }, probe, path)).rejects.toEqual(setupError('github', 'repositoryUnset'))
   })
   it('names what setup needs and where it is set', async () => {
     const needs = (place: string, code: string, values: Record<string, unknown>, github: unknown) =>

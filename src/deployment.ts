@@ -8,6 +8,7 @@ import { z } from 'zod'
 import type { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 import { agentVariables, runAsWorker, sameDirectory, withoutDirectory, workerBin } from './infra/environment.ts'
 import { SetupError } from './setup.ts'
+import { LocalProjectsSchema, type LocalProject } from './policy.ts'
 
 const reason = (error: unknown): string => error instanceof Error ? error.message : String(error)
 const absolute = (description: string) => s.string().pattern(/^\//).description(`${description} Absolute path.`)
@@ -53,13 +54,13 @@ export const SETUP_FIELDS: Readonly<Record<string, readonly string[]>> = { githu
 /** The GitHub repository and the agent account that acts on it. */
 export interface GithubAccount { repository: string; cli: string; login: string; noreply: string }
 /**
- * A resolved deployment serves a GitHub repository (`github`), a local git repository (`project`), or both; setup refuses
+ * A resolved deployment serves a GitHub repository (`github`), named local git repositories (`projects`), or both; setup refuses
  * neither. Without `github`, the GitHub Source does not run and workers deliver local commits instead of pull requests.
  */
 export interface Deployment extends Machine {
   github?: GithubAccount
-  /** Top-level directory of the local git repository named by the Execution settings. */
-  project?: string
+  /** Named top-level directories of local git repositories from the Execution settings. */
+  projects?: LocalProject[]
   feishu?: FeishuBot
 }
 /** The deployment's GitHub account, for code that only runs with one. */
@@ -117,30 +118,36 @@ export async function resolveGithub(machine: Machine, github: unknown, probe: Pr
   return { repository, cli, login: agent.login, noreply: `${agent.id}+${agent.login}@users.noreply.github.com` }
 }
 
-/** Verify that the Execution settings' local project is a git work tree, returning its top-level directory; no project when unset. */
-export async function resolveProject(project: string, probe: Probe, stateDir: string): Promise<string | undefined> {
-  if (!project) return undefined
-  if (!isAbsolute(project)) throw new SetupError('projectInvalid', { project, output: 'Not an absolute path' })
+/** Verify each named local git work tree and return its canonical top-level directory. */
+export async function resolveProjects(projects: LocalProject[], probe: Probe, stateDir: string): Promise<LocalProject[]> {
+  const configured = LocalProjectsSchema.parse(projects)
   // Setup resolves before it applies the workers' environment: git runs with the workers' git variables, not the host's, whose
   // GIT_CONFIG_COUNT would outlive the GIT_CONFIG_KEY_n variables DSH strips from child processes and break every git command.
   const variables = Object.entries(agentVariables(stateDir))
   // `env` takes every -u before the first assignment.
   const unset = variables.flatMap(([name, value]) => value === undefined ? ['-u', name] : [])
   const set = variables.flatMap(([name, value]) => value === undefined ? [] : [`${name}=${value}`])
-  const top = await probe(['env', ...unset, ...set, 'git', '-C', project, 'rev-parse', '--show-toplevel']).catch((error: unknown) => {
-    throw new SetupError('projectInvalid', { project, output: reason(error) })
-  })
-  const directory = top.trim()
-  if (!isAbsolute(directory)) throw new SetupError('projectInvalid', { project, output: `git reported ${JSON.stringify(directory)}` })
-  return directory
+  const result: LocalProject[] = []
+  for (const { name, path } of configured) {
+    const values = { name, project: path }
+    const top = await probe(['env', ...unset, ...set, 'git', '-C', path, 'rev-parse', '--show-toplevel']).catch((error: unknown) => {
+      throw new SetupError('projectInvalid', { ...values, output: reason(error) })
+    })
+    const directory = top.trim()
+    if (!isAbsolute(directory)) throw new SetupError('projectInvalid', { ...values, output: `git reported ${JSON.stringify(directory)}` })
+    const duplicate = result.find(project => sameDirectory(project.path, directory))
+    if (duplicate) throw new SetupError('projectDuplicate', { ...values, other: duplicate.name })
+    result.push({ name, path: directory })
+  }
+  return result
 }
 
 /** Resolve the agent's workspace: the GitHub repository and account, the local project, or both; refuse when neither is set. */
-export async function resolveDeployment(machine: Machine, workspace: { github?: unknown; project?: string }, probe: Probe, path = process.env.PATH ?? ''): Promise<Deployment> {
+export async function resolveDeployment(machine: Machine, workspace: { github?: unknown; projects?: LocalProject[] }, probe: Probe, path = process.env.PATH ?? ''): Promise<Deployment> {
   const github = await resolveGithub(machine, workspace.github, probe, path)
-  const project = await resolveProject(workspace.project ?? '', probe, machine.stateDir)
-  if (!github && !project) throw new SetupError('workspaceUnset')
-  return { ...machine, ...(github ? { github } : {}), ...(project ? { project } : {}) }
+  const projects = await resolveProjects(workspace.projects ?? [], probe, machine.stateDir)
+  if (!github && !projects.length) throw new SetupError('workspaceUnset')
+  return { ...machine, ...(github ? { github } : {}), projects }
 }
 
 const AuthStatus = z.object({ appId: z.string().regex(/^cli_[A-Za-z0-9]+$/), brand: z.enum(['feishu', 'lark']).default('feishu'), identities: z.object({ bot: z.object({ status: z.string() }) }) })

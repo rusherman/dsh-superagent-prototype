@@ -68,7 +68,10 @@ function settingsChanges(before: SettingsVersion['settings'], after: SettingsVer
   if (!same(before.executor.model, after.executor.model)) changes.push({ code: 'executorModel' })
   if (before.executor.maxWorkers !== after.executor.maxWorkers) changes.push({ code: 'maxWorkers', from: before.executor.maxWorkers, to: after.executor.maxWorkers })
   if (before.paused !== after.paused) changes.push({ code: after.paused ? 'paused' : 'resumed' })
-  if (before.executor.project !== after.executor.project) changes.push({ code: 'localProject', from: before.executor.project, to: after.executor.project })
+  if (!same(before.executor.projects, after.executor.projects)) {
+    const describe = (projects: SettingsVersion['settings']['executor']['projects']) => projects.map(project => `${project.name}: ${project.path}`).join(', ')
+    changes.push({ code: 'localProject', from: describe(before.executor.projects), to: describe(after.executor.projects) })
+  }
   if (before.executor.directory !== after.executor.directory) changes.push({ code: 'executionDirectory', from: before.executor.directory, to: after.executor.directory })
   if (before.executor.prepare !== after.executor.prepare) changes.push({ code: 'prepareCommand' })
   if (!same(before.executor.blockedCommands, after.executor.blockedCommands)) changes.push({ code: 'blockedCommands', from: before.executor.blockedCommands.join(' '), to: after.executor.blockedCommands.join(' ') })

@@ -14,8 +14,8 @@ export interface SetupHost {
 }
 
 const setupFields = (settings: Settings) =>
-  JSON.stringify([settings.executor.project, ...Object.entries(SETUP_FIELDS).map(([id, keys]) => keys.map(key => settings.sources[id]?.config[key] ?? ''))])
-const workspaceOf = (settings: Settings) => ({ github: settings.sources.github?.config, project: settings.executor.project })
+  JSON.stringify([settings.executor.projects, ...Object.entries(SETUP_FIELDS).map(([id, keys]) => keys.map(key => settings.sources[id]?.config[key] ?? ''))])
+const workspaceOf = (settings: Settings) => ({ github: settings.sources.github?.config, projects: settings.executor.projects })
 export const setupChanged = (before: Settings, after: Settings): boolean => setupFields(before) !== setupFields(after)
 
 /**

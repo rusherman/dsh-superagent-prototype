@@ -68,12 +68,14 @@ export const EvalReadSchema = z.object({
   trigger_id: z.string().min(1).describe('Original candidate ID returned by orchestrator_eval; every reference is scoped to this trigger.'),
   resource: z.enum(['message', 'root', 'parent', 'thread', 'file', 'directory', 'image']),
   path: z.string().optional().describe('Repository-relative path, only for file/directory.'),
+  project: z.string().min(1).optional().describe('Local repository name from DSH_SUPERAGENT_PROJECTS, only for file/directory. Required without GitHub when several repositories are configured; omit for the GitHub repository.'),
   message_id: z.string().optional().describe('Only for message: omit for the trigger, or the id of a window message or stub.'),
   cursor: z.string().optional().describe('Only for thread: omit on the first page, then the next_cursor of the window or the cursor of next_read. Never a thread or message ID.'),
   image_id: z.string().optional().describe('Only for image: an image id the window or a read lists.'),
   offset: z.number().int().min(0).default(0).describe('Text pagination: copy next_offset; keep the other arguments unchanged. Images use 0.'),
 }).strict().superRefine((read, ctx) => {
   if ((read.resource === 'file' || read.resource === 'directory') !== (read.path !== undefined)) ctx.addIssue({ code: 'custom', message: 'path is required only for file/directory. To read the source/root/parent, use resource=message/root/parent without a path.' })
+  if (read.project !== undefined && read.resource !== 'file' && read.resource !== 'directory') ctx.addIssue({ code: 'custom', message: 'project is only for file/directory.' })
   if (read.message_id !== undefined && read.resource !== 'message') ctx.addIssue({ code: 'custom', message: 'message_id is only for message; use returned image_id for images.' })
   if (read.cursor !== undefined && read.resource !== 'thread') ctx.addIssue({ code: 'custom', message: 'cursor is only for thread. First page: {resource:"thread"}.' })
   if ((read.resource === 'image') !== (read.image_id !== undefined)) ctx.addIssue({ code: 'custom', message: 'Images require image_id from a returned read reference. Read the thread or root first to discover their images.' })
@@ -237,7 +239,7 @@ export class MasterAssessor implements Assessor {
         const key = read.image_id!.slice(read.image_id!.indexOf('/') + 1)
         return source.image(agent, commands, image, key, this.host.deployment.stateDir, signal)
       }
-      const cacheKey = JSON.stringify([read.resource, read.path, read.cursor, read.message_id])
+      const cacheKey = JSON.stringify([read.resource, read.project, read.path, read.cursor, read.message_id])
       if (read.offset > 0) {
         const cached = snapshots.get(cacheKey)
         if (cached === undefined) throw new Error('Read this resource at offset 0 first')
@@ -264,9 +266,12 @@ export class MasterAssessor implements Assessor {
       }
       else {
         const kind = read.resource === 'directory' ? 'directory' : 'file'
-        // Without GitHub, the repository is the local project, read at its committed HEAD.
-        const { github, project } = this.host.deployment
-        body = github || !project ? await readRepositoryPath(commands, read.path!, kind) : await readProjectPath(commands, project, read.path!, kind)
+        const { github, projects = [] } = this.host.deployment
+        const project = read.project !== undefined ? projects.find(project => project.name === read.project)
+          : !github && projects.length === 1 ? projects[0] : undefined
+        if (read.project !== undefined && !project) throw new Error(`Unknown local repository ${read.project}. Available: ${projects.map(project => project.name).join(', ')}`)
+        if (!project && !github) throw new Error(`Choose a local repository with project. Available: ${projects.map(project => project.name).join(', ')}`)
+        body = project ? await readProjectPath(commands, project.path, read.path!, kind) : await readRepositoryPath(commands, read.path!, kind)
       }
       snapshots.set(cacheKey, body)
       return textPage(read.resource, body, read.offset, 4000)

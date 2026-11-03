@@ -87,11 +87,23 @@ export const EvalConfigSchema = z.object({
 }).strict()
 const CommandNameSchema = z.string().regex(/^[A-Za-z0-9._-]+$/).refine(name => name !== '.' && name !== '..', 'Not a command name')
   .refine(name => !WORKER_COMMANDS.includes(name), `${WORKER_COMMANDS.join(', ')} cannot be blocked`)
-/** Executor settings: worker model, concurrency, local project (a git repository; empty when the installation serves only GitHub), ticket directory root (empty defaults to `<stateDir>/work`), `prepare` command, and blocked commands. */
+export const LocalProjectSchema = z.object({
+  name: z.string().trim().regex(/^[a-z][a-z0-9_-]{0,47}$/, 'Use 1-48 lowercase letters, digits, underscores or hyphens, starting with a letter'),
+  path: z.string().trim().startsWith('/', 'An absolute path is required'),
+}).strict()
+export type LocalProject = z.infer<typeof LocalProjectSchema>
+export const LocalProjectsSchema = z.array(LocalProjectSchema).superRefine((projects, ctx) => {
+  const names = new Set<string>()
+  for (const [index, project] of projects.entries()) {
+    if (names.has(project.name)) ctx.addIssue({ code: 'custom', path: [index, 'name'], message: `Duplicate repository name: ${project.name}` })
+    names.add(project.name)
+  }
+})
+/** Executor settings: worker model, concurrency, named local git repositories, ticket directory root, prepare command, and blocked commands. */
 export const ExecutorConfigSchema = z.object({
   model: RoleModelSchema.nullable().default(null),
   maxWorkers: z.number().int().min(LIMITS.maxWorkers.min).max(LIMITS.maxWorkers.max).default(3),
-  project: z.string().trim().refine(path => path === '' || path.startsWith('/'), 'An absolute path, or empty for no local project').default(''),
+  projects: LocalProjectsSchema.default([]),
   directory: z.string().trim().refine(path => path === '' || path.startsWith('/'), 'An absolute path, or empty for <stateDir>/work').default(''),
   prepare: z.string().max(LIMITS.prepareCommand).default(''),
   blockedCommands: z.array(CommandNameSchema).default([]),
